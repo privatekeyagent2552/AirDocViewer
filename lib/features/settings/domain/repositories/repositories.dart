@@ -1,5 +1,5 @@
-import 'package:fadocx/features/settings/domain/entities/app_settings.dart';
-import 'package:fadocx/core/errors/failures.dart';
+import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/core/errors/failures.dart';
 
 /// Abstract repository for app settings
 /// Implementation can use Hive, Firebase, SQL, etc.

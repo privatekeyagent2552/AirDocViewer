@@ -38,7 +38,7 @@ abstract class PlatformChannelService {
 
 /// Concrete implementation using Flutter's MethodChannel
 class MethodChannelService implements PlatformChannelService {
-  static const _channelName = 'com.fadseclab.fadocx/document_parser';
+  static const _channelName = 'com.airdocsviewer/document_parser';
   late final MethodChannel _channel;
 
   MethodChannelService() {

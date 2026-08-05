@@ -1,5 +1,5 @@
 import 'package:logger/logger.dart';
-import 'package:fadocx/features/settings/data/models/hive_models.dart';
+import 'package:air_docs_viewer/features/settings/data/models/hive_models.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 final log = Logger();
@@ -7,13 +7,14 @@ final log = Logger();
 /// Datasource for Hive database operations
 /// Handles all direct Hive box access
 class HiveDatasource {
-  static const String settingsBoxName = 'fadocx_settings';
-  static const String recentFilesBoxName = 'fadocx_recent_files';
-  static const String deviceInfoBoxName = 'fadocx_device_info';
-  static const String thumbnailCacheBoxName = 'fadocx_thumbnail_cache';
+  static const String settingsBoxName = 'air_docs_viewer_settings';
+  static const String recentFilesBoxName = 'air_docs_viewer_recent_files';
+  static const String deviceInfoBoxName = 'air_docs_viewer_device_info';
+  static const String thumbnailCacheBoxName = 'air_docs_viewer_thumbnail_cache';
 
-  /// Initialize Hive, register adapters, and pre-open essential boxes
-  static Future<void> initialize() async {
+  /// Initialize Hive, register adapters, and pre-open only the settings box.
+  /// Returns cached settings when available (avoids a second disk read in main()).
+  static Future<HiveAppSettings?> initialize() async {
     try {
       await Hive.initFlutter();
       Hive.registerAdapter(HiveRecentFileAdapter());
@@ -21,16 +22,21 @@ class HiveDatasource {
       Hive.registerAdapter(HiveDeviceInfoAdapter());
       Hive.registerAdapter(HiveThumbnailAdapter());
 
-      // Pre-open both settings and recent files boxes to avoid blocking UI during home screen render
+      // Settings only at startup — recent files + thumbnails open lazily on demand.
       if (!Hive.isBoxOpen(settingsBoxName)) {
         await Hive.openBox<HiveAppSettings>(settingsBoxName);
       }
-      if (!Hive.isBoxOpen(recentFilesBoxName)) {
-        await Hive.openBox<HiveRecentFile>(recentFilesBoxName);
+
+      final box = Hive.box<HiveAppSettings>(settingsBoxName);
+      if (box.values.isEmpty) {
+        final defaults = HiveAppSettings();
+        await box.put(0, defaults);
+        log.i('Hive initialization complete (settings box opened)');
+        return defaults;
       }
 
-      log.i(
-          'Hive initialization complete (settings + recent files boxes opened)');
+      log.i('Hive initialization complete (settings box opened)');
+      return box.values.first;
     } catch (e, st) {
       log.e('Error initializing Hive', error: e, stackTrace: st);
       rethrow;

@@ -1,12 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
-import 'package:fadocx/features/viewer/domain/entities/sheet_entity.dart';
-import 'package:fadocx/features/viewer/domain/repositories/document_parsing_repository.dart';
-import '../services/cache_service.dart';
-import '../services/document_parser_service.dart';
-import '../services/platform_channel_service.dart';
-import '../services/word_document_parser_service.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/repositories/document_parsing_repository.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/cache_service.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/document_parser_service.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/office_glyph_sanitizer.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/platform_channel_service.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/word_document_parser_service.dart';
 
 final log = Logger();
 
@@ -202,50 +203,93 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
       await cacheParsing(filePath, result);
       return result;
     } catch (e, st) {
-      log.e('NATIVE CSV parsing failed: $e', error: e, stackTrace: st);
-      rethrow;
+      log.w('Native CSV parsing failed, falling back to Dart parser: $e',
+          error: e, stackTrace: st);
+      final dartResult = await DocumentParserService.parseCSV(filePath);
+      final result = _toParsedEntity(dartResult, format: 'CSV');
+      await cacheParsing(filePath, result);
+      return result;
     }
   }
 
   @override
   Future<ParsedDocumentEntity> parseDOCX(String filePath) async {
-    // Check cache first (skip if format is UNKNOWN or invalid)
+    // Visual DOCX preview is handled by the bundled WebView renderer.
+    // Skip slow native/Dart text parse so the viewer can open immediately.
+    log.i('DOCX: returning visual stub (WebView renders layout): $filePath');
+    return ParsedDocumentEntity(
+      format: 'DOCX',
+      sheets: const [],
+      sheetCount: 0,
+      parsedAt: DateTime.now(),
+      sourceFilePath: filePath,
+      fidelityLevel: DocumentFidelityLevel.rich,
+    );
+  }
+
+  @override
+  Future<ParsedDocumentEntity> parseDOCXStructured(String filePath) async {
     final cached = await getCachedParsing(filePath);
-    if (cached != null && cached.format != 'UNKNOWN') {
-      log.i('Using cached DOCX: $filePath');
+    if (cached != null &&
+        cached.format == 'DOCX' &&
+        (cached.hasRichDocument || (cached.plainTextContent?.isNotEmpty ?? false))) {
+      log.i('Using cached structured DOCX: $filePath');
       return cached;
     }
 
-    log.i('Parsing DOCX (native preferred): $filePath');
-
+    log.i('Parsing DOCX structured fallback: $filePath');
     try {
       final nativeResult =
           await _platformChannel.parseDocumentNative(filePath, 'DOCX');
-      final result = _toParsedEntity(nativeResult, format: 'DOCX');
-      log.i(
-          'Successfully parsed DOCX natively: ${(result.searchableText).length} characters');
+      final result = _toParsedEntity(nativeResult, format: 'DOCX').copyWith(
+        fidelityLevel: (nativeResult['documentBlocks'] as List?)?.isNotEmpty == true
+            ? DocumentFidelityLevel.partial
+            : DocumentFidelityLevel.plainText,
+        parseWarnings: ((nativeResult['parseWarnings'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+      );
       await cacheParsing(filePath, result);
       return result;
     } catch (e, st) {
-      log.w('Native DOCX parsing failed, falling back to Dart parser: $e',
+      final message = e.toString();
+      if (message.contains('OLE2NotOfficeXmlFileException') ||
+          message.contains('appears to be in the OLE2 Format')) {
+        log.w('File named DOCX contains legacy DOC/OLE2 data; parsing as DOC');
+        final legacyResult =
+            await _platformChannel.parseDocumentNative(filePath, 'DOC');
+        final result =
+            _toParsedEntity(legacyResult, format: 'DOCX').copyWith(
+          format: 'DOCX',
+          fidelityLevel:
+              (legacyResult['documentBlocks'] as List?)?.isNotEmpty == true
+                  ? DocumentFidelityLevel.partial
+                  : DocumentFidelityLevel.plainText,
+          parseWarnings: [
+            'This file uses legacy DOC data despite its .docx extension.',
+            ...((legacyResult['parseWarnings'] as List?) ?? const [])
+                .map((item) => item.toString()),
+          ],
+        );
+        await cacheParsing(filePath, result);
+        return result;
+      }
+
+      log.w('Native DOCX fallback failed, trying Dart parser: $e',
           error: e, stackTrace: st);
-      final structuredResult =
-          await WordDocumentParserService.parseDocx(filePath);
+      final structured = await WordDocumentParserService.parseDocx(filePath);
       final result = ParsedDocumentEntity(
         format: 'DOCX',
         sheets: const [],
         sheetCount: 0,
         parsedAt: DateTime.now(),
         sourceFilePath: filePath,
-        plainTextContent: structuredResult.plainTextContent,
-        documentBlocks: structuredResult.documentBlocks,
-        parseWarnings: [
-          'Using Dart DOCX fallback parser because native parsing was unavailable.',
-          ...structuredResult.parseWarnings,
-        ],
-        fidelityLevel: DocumentFidelityLevel.partial,
-        wordCount: _countWords(structuredResult.plainTextContent),
-        lineCount: _countLines(structuredResult.plainTextContent),
+        plainTextContent: structured.plainTextContent,
+        documentBlocks: structured.documentBlocks,
+        parseWarnings: structured.parseWarnings,
+        fidelityLevel: structured.fidelityLevel,
+        wordCount: _countWords(structured.plainTextContent),
+        lineCount: _countLines(structured.plainTextContent),
       );
       await cacheParsing(filePath, result);
       return result;
@@ -377,16 +421,179 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
   }
 
   @override
+  Future<ParsedDocumentEntity> parseOTT(String filePath) =>
+      _parseOdfText(filePath, 'OTT');
+
+  @override
+  Future<ParsedDocumentEntity> parseODP(String filePath) =>
+      _parseOdfText(filePath, 'ODP');
+
+  /// Shared OpenDocument text extraction (ODP/OTT share ODT's content.xml layout)
+  Future<ParsedDocumentEntity> _parseOdfText(
+    String filePath,
+    String format,
+  ) async {
+    final cached = await getCachedParsing(filePath);
+    if (cached != null && cached.format != 'UNKNOWN') {
+      log.i('Using cached $format: $filePath');
+      return cached;
+    }
+
+    log.i('Parsing $format (structured Dart parser): $filePath');
+    final structuredResult = await WordDocumentParserService.parseOdt(filePath);
+    final result = ParsedDocumentEntity(
+      format: format,
+      sheets: const [],
+      sheetCount: 0,
+      parsedAt: DateTime.now(),
+      sourceFilePath: filePath,
+      plainTextContent: structuredResult.plainTextContent,
+      documentBlocks: structuredResult.documentBlocks,
+      parseWarnings: structuredResult.parseWarnings,
+      fidelityLevel: structuredResult.fidelityLevel,
+      wordCount: _countWords(structuredResult.plainTextContent),
+      lineCount: _countLines(structuredResult.plainTextContent),
+    );
+    await cacheParsing(filePath, result);
+    return result;
+  }
+
+  @override
+  Future<ParsedDocumentEntity> parsePPTX(String filePath) =>
+      _visualPresentationStub(filePath, 'PPTX');
+
+  @override
+  Future<ParsedDocumentEntity> parsePPTXStructured(String filePath) async {
+    final cached = await getCachedParsing(filePath);
+    if (cached != null &&
+        cached.format == 'PPTX' &&
+        (cached.hasRichDocument ||
+            cached.slides.isNotEmpty ||
+            (cached.plainTextContent?.isNotEmpty ?? false))) {
+      log.i('Using cached structured PPTX: $filePath');
+      return cached;
+    }
+
+    log.i('Parsing PPTX structured fallback (native SlideShow): $filePath');
+    try {
+      final nativeResult =
+          await _platformChannel.parseDocumentNative(filePath, 'PPTX');
+      final result = _toParsedEntity(nativeResult, format: 'PPTX').copyWith(
+        fidelityLevel: (nativeResult['documentBlocks'] as List?)?.isNotEmpty == true
+            ? DocumentFidelityLevel.partial
+            : DocumentFidelityLevel.plainText,
+        parseWarnings: ((nativeResult['parseWarnings'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+      );
+      log.i(
+        'Successfully parsed PPTX fallback: ${result.slideCount} slides, '
+        '${result.documentBlocks.length} blocks',
+      );
+      await cacheParsing(filePath, result);
+      return result;
+    } catch (e, st) {
+      log.e('NATIVE PARSING FAILED for PPTX fallback: $e',
+          error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<ParsedDocumentEntity> parsePPT(String filePath) async {
+    // Legacy binary PPT cannot be rendered by the PPTX WebView engine.
+    // Parse slides/text via native Apache POI instead of returning an empty stub.
+    final cached = await getCachedParsing(filePath);
+    if (cached != null && cached.format != 'UNKNOWN') {
+      log.i('Using cached PPT: $filePath');
+      return cached;
+    }
+
+    log.i('Parsing PPT (native SlideShow): $filePath');
+    try {
+      final nativeResult =
+          await _platformChannel.parseDocumentNative(filePath, 'PPT');
+      final result = _toParsedEntity(nativeResult, format: 'PPT').copyWith(
+        fidelityLevel: (nativeResult['documentBlocks'] as List?)?.isNotEmpty ==
+                true
+            ? DocumentFidelityLevel.partial
+            : DocumentFidelityLevel.plainText,
+        parseWarnings: ((nativeResult['parseWarnings'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+      );
+      log.i(
+        'Successfully parsed PPT: ${result.slideCount} slides, '
+        '${result.documentBlocks.length} blocks',
+      );
+      await cacheParsing(filePath, result);
+      return result;
+    } catch (e, st) {
+      log.e('NATIVE PARSING FAILED for PPT: $e', error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  /// PPTX visual preview is rendered by the bundled WebView (slide layout).
+  /// Skip Apache POI text extraction so decks open quickly.
+  Future<ParsedDocumentEntity> _visualPresentationStub(
+    String filePath,
+    String format,
+  ) async {
+    log.i('$format: returning visual stub (WebView renders slides): $filePath');
+    return ParsedDocumentEntity(
+      format: format,
+      sheets: const [],
+      sheetCount: 0,
+      parsedAt: DateTime.now(),
+      sourceFilePath: filePath,
+      fidelityLevel: DocumentFidelityLevel.rich,
+    );
+  }
+
+  @override
+  Future<ParsedDocumentEntity> parseEPUB(String filePath) async {
+    final cached = await getCachedParsing(filePath);
+    if (cached != null && cached.format != 'UNKNOWN') {
+      log.i('Using cached EPUB: $filePath');
+      return cached;
+    }
+
+    log.i('Parsing EPUB (structured Dart parser): $filePath');
+    final structuredResult = await WordDocumentParserService.parseEpub(filePath);
+    final result = ParsedDocumentEntity(
+      format: 'EPUB',
+      sheets: const [],
+      sheetCount: 0,
+      parsedAt: DateTime.now(),
+      sourceFilePath: filePath,
+      plainTextContent: structuredResult.plainTextContent,
+      documentBlocks: structuredResult.documentBlocks,
+      parseWarnings: structuredResult.parseWarnings,
+      fidelityLevel: structuredResult.fidelityLevel,
+      wordCount: _countWords(structuredResult.plainTextContent),
+      lineCount: _countLines(structuredResult.plainTextContent),
+    );
+    await cacheParsing(filePath, result);
+    return result;
+  }
+
+  @override
   Future<ParsedDocumentEntity?> getCachedParsing(String filePath) async {
     try {
       final cachedResult = await _cache.getCachedParsing(filePath);
       if (cachedResult != null) {
+        final plain = OfficeGlyphSanitizer.sanitize(
+          (cachedResult['plainTextContent'] ?? cachedResult['textContent'])
+              as String?,
+        );
         return ParsedDocumentEntity(
           format: cachedResult['format'] ?? 'UNKNOWN',
           sheets: _buildSheetEntities(cachedResult['sheets'] ?? []),
           slides: _buildSlideEntities(cachedResult['slides'] ?? []),
-          documentBlocks:
-              _buildDocumentBlocks(cachedResult['documentBlocks'] ?? []),
+          documentBlocks: _sanitizeBlocks(
+            _buildDocumentBlocks(cachedResult['documentBlocks'] ?? []),
+          ),
           parseWarnings: ((cachedResult['parseWarnings'] as List?) ?? const [])
               .map((e) => e.toString())
               .toList(),
@@ -397,8 +604,7 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
           lineCount: cachedResult['lineCount'] as int?,
           parsedAt: DateTime.now(),
           sourceFilePath: filePath,
-          plainTextContent: (cachedResult['plainTextContent'] ??
-              cachedResult['textContent']) as String?,
+          plainTextContent: plain.isEmpty ? null : plain,
         );
       }
     } catch (e) {
@@ -464,29 +670,86 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
     final sheets = _buildSheetEntities(parserResult['sheets'] ?? []);
     final slides = _buildSlideEntities(parserResult['slides'] ?? []);
 
+    final rawPlain = (parserResult['plainTextContent'] ??
+        parserResult['textContent']) as String?;
+    final plain = OfficeGlyphSanitizer.sanitize(rawPlain);
+    final blocks = _sanitizeBlocks(
+      _buildDocumentBlocks(parserResult['documentBlocks'] ?? []),
+    );
+
     return ParsedDocumentEntity(
       format: format ?? parserResult['format'] ?? 'UNKNOWN',
       sheets: sheets,
       sheetCount: parserResult['sheetCount'] ?? sheets.length,
       slideCount: parserResult['slideCount'] ?? slides.length,
       slides: slides,
-      documentBlocks:
-          _buildDocumentBlocks(parserResult['documentBlocks'] ?? []),
+      documentBlocks: blocks,
       parseWarnings: ((parserResult['parseWarnings'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList(),
       fidelityLevel: _parseFidelityLevel(parserResult['fidelityLevel']),
       parsedAt: DateTime.now(),
       sourceFilePath: parserResult['filePath'] ?? '',
-      plainTextContent: (parserResult['plainTextContent'] ??
-          parserResult['textContent']) as String?,
-      wordCount: (parserResult['wordCount'] as int?) ??
-          _countWords((parserResult['plainTextContent'] ??
-              parserResult['textContent']) as String?),
-      lineCount: (parserResult['lineCount'] as int?) ??
-          _countLines((parserResult['plainTextContent'] ??
-              parserResult['textContent']) as String?),
+      plainTextContent: plain.isEmpty ? null : plain,
+      wordCount: (parserResult['wordCount'] as int?) ?? _countWords(plain),
+      lineCount: (parserResult['lineCount'] as int?) ?? _countLines(plain),
     );
+  }
+
+  List<DocumentBlock> _sanitizeBlocks(List<DocumentBlock> blocks) {
+    return blocks.map((block) {
+      if (block is DocumentParagraphBlock) {
+        return DocumentParagraphBlock(
+          inlines: block.inlines
+              .map(
+                (inline) => DocumentInline(
+                  type: inline.type,
+                  text: OfficeGlyphSanitizer.sanitize(inline.text),
+                  href: inline.href,
+                  style: OfficeGlyphSanitizer.isSymbolFont(inline.style.fontFamily)
+                      ? DocumentTextStyleData(
+                          bold: inline.style.bold,
+                          italic: inline.style.italic,
+                          underline: inline.style.underline,
+                          strike: inline.style.strike,
+                          fontFamily: null,
+                          fontSize: inline.style.fontSize,
+                          colorHex: inline.style.colorHex,
+                          backgroundHex: inline.style.backgroundHex,
+                        )
+                      : inline.style,
+                ),
+              )
+              .toList(),
+          alignment: block.alignment,
+          spacingBefore: block.spacingBefore,
+          spacingAfter: block.spacingAfter,
+          firstLineIndent: block.firstLineIndent,
+          leftIndent: block.leftIndent,
+          rightIndent: block.rightIndent,
+          listLevel: block.listLevel,
+          listKind: block.listKind,
+        );
+      }
+      if (block is DocumentTableBlock) {
+        return DocumentTableBlock(
+          rows: block.rows
+              .map(
+                (row) => DocumentTableRow(
+                  cells: row.cells
+                      .map(
+                        (cell) => DocumentTableCell(
+                          blocks: _sanitizeBlocks(cell.blocks),
+                        ),
+                      )
+                      .toList(),
+                ),
+              )
+              .toList(),
+        );
+      }
+      return block;
+    }).toList();
   }
 
   List<DocumentBlock> _buildDocumentBlocks(List<dynamic> blockData) {

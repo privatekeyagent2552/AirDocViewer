@@ -116,7 +116,7 @@ abstract class AppLocalizations {
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
-  /// **'Fadocx'**
+  /// **'AirDoc Viewer'**
   String get appName;
 
   /// No description provided for @appDescription.
@@ -128,13 +128,13 @@ abstract class AppLocalizations {
   /// No description provided for @homeTitle.
   ///
   /// In en, this message translates to:
-  /// **'Fadocx'**
+  /// **'AirDoc Viewer'**
   String get homeTitle;
 
   /// No description provided for @recentFiles.
   ///
   /// In en, this message translates to:
-  /// **'Recent Files'**
+  /// **'Imported Files'**
   String get recentFiles;
 
   /// No description provided for @noRecentFiles.
@@ -506,13 +506,13 @@ abstract class AppLocalizations {
   /// No description provided for @privacyDescription.
   ///
   /// In en, this message translates to:
-  /// **'Fadocx is a document viewer. Your files are stored locally on your device and are never transmitted to any server.'**
+  /// **'Air Docs Viewer is a document viewer. Your files are stored locally on your device and are never transmitted to any server.'**
   String get privacyDescription;
 
   /// No description provided for @aboutDescription.
   ///
   /// In en, this message translates to:
-  /// **'Fadocx v1.0.0 - Your private document viewer. Built to respect your privacy.'**
+  /// **'Air Docs Viewer v1.0.0 - Your private document viewer. Built to respect your privacy.'**
   String get aboutDescription;
 
   /// No description provided for @tableRows.
@@ -872,7 +872,7 @@ abstract class AppLocalizations {
   /// No description provided for @patreonDescription.
   ///
   /// In en, this message translates to:
-  /// **'Your support keeps Fadocx and FadCam growing. Patreon subscribers unlock exclusive benefits including premium features and early access across all FadSec Lab apps.\n\nFor more info, visit Patreon from the link below and check the available tiers with their benefits.'**
+  /// **'Your support keeps Air Docs Viewer. Thank you for your support.\n\n'**
   String get patreonDescription;
 
   /// No description provided for @discordTitle.
@@ -1016,19 +1016,19 @@ abstract class AppLocalizations {
   /// No description provided for @homeWelcomeTitle.
   ///
   /// In en, this message translates to:
-  /// **'Welcome to Fadocx'**
+  /// **'Welcome to AirDoc Viewer'**
   String get homeWelcomeTitle;
 
   /// No description provided for @homeWelcomeSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Explore sample files or import your own documents to get started'**
+  /// **'Use Import a Document above, then tap a file to view it'**
   String get homeWelcomeSubtitle;
 
   /// No description provided for @homeExploreSamples.
   ///
   /// In en, this message translates to:
-  /// **'Explore Sample Files'**
+  /// **'Try Demo Files'**
   String get homeExploreSamples;
 
   /// No description provided for @homeDocumentManagement.
@@ -1094,7 +1094,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingSlide1Title.
   ///
   /// In en, this message translates to:
-  /// **'Welcome to Fadocx'**
+  /// **'Welcome to AirDoc Viewer'**
   String get onboardingSlide1Title;
 
   /// No description provided for @onboardingSlide1Tagline.
@@ -1208,13 +1208,13 @@ abstract class AppLocalizations {
   /// No description provided for @homeImportingSamples.
   ///
   /// In en, this message translates to:
-  /// **'Importing sample files...'**
+  /// **'Adding demo files to this device...'**
   String get homeImportingSamples;
 
   /// No description provided for @homeSamplesImported.
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{1 sample file imported successfully!} other{{count} sample files imported successfully!}}'**
+  /// **'{count, plural, =1{1 demo file added on this device!} other{{count} demo files added on this device!}}'**
   String homeSamplesImported(num count);
 
   /// No description provided for @homeViewFiles.
@@ -1364,7 +1364,7 @@ abstract class AppLocalizations {
   /// No description provided for @homeSaveToDownloadsPath.
   ///
   /// In en, this message translates to:
-  /// **'Download/Fadocx/{name}'**
+  /// **'Download/AirDocsViewer/{name}'**
   String homeSaveToDownloadsPath(String name);
 
   /// No description provided for @homeChooseLocation.
@@ -1382,7 +1382,7 @@ abstract class AppLocalizations {
   /// No description provided for @homeSavedToDownloads.
   ///
   /// In en, this message translates to:
-  /// **'Saved to Download/Fadocx/{name}'**
+  /// **'Saved to Download/AirDocsViewer/{name}'**
   String homeSavedToDownloads(String name);
 
   /// No description provided for @homeSavedTo.
@@ -1886,7 +1886,7 @@ abstract class AppLocalizations {
   /// No description provided for @whatsNewEditingDesc.
   ///
   /// In en, this message translates to:
-  /// **'Make quick edits to your documents right within Fadocx.'**
+  /// **'Make quick edits to your documents right within Air Docs Viewer.'**
   String get whatsNewEditingDesc;
 
   /// No description provided for @whatsNewBookmarks.
@@ -1946,13 +1946,13 @@ abstract class AppLocalizations {
   /// No description provided for @whatsNewThankYou.
   ///
   /// In en, this message translates to:
-  /// **'Thank You for Using Fadocx'**
+  /// **'Thank You for Using Air Docs Viewer'**
   String get whatsNewThankYou;
 
   /// No description provided for @whatsNewThankYouDesc.
   ///
   /// In en, this message translates to:
-  /// **'If you find value in Fadocx, consider supporting its development. Your contribution helps us keep building privacy-first tools.'**
+  /// **'If you find value in Air Docs Viewer, consider supporting its development. Your contribution helps us keep building privacy-first tools.'**
   String get whatsNewThankYouDesc;
 
   /// No description provided for @drawerWhatNew.
@@ -2132,7 +2132,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateBetaInfo.
   ///
   /// In en, this message translates to:
-  /// **'The Fadocx beta is a standalone app that can be installed alongside the stable version. It will not interfere with your stable app or its data.\n\nInstall the beta to test new features before they reach the stable release.'**
+  /// **'The Air Docs Viewer beta is a standalone app that can be installed alongside the stable version. It will not interfere with your stable app or its data.\n\nInstall the beta to test new features before they reach the stable release.'**
   String get updateBetaInfo;
 
   /// No description provided for @updateBannerStable.
@@ -2246,7 +2246,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsStoragePrivateFolderInfo.
   ///
   /// In en, this message translates to:
-  /// **'Documents are stored in a private folder, hidden from other apps and file managers. Only Fadocx can access them.'**
+  /// **'Documents are stored in a private folder, hidden from other apps and file managers. Only Air Docs Viewer can access them.'**
   String get settingsStoragePrivateFolderInfo;
 
   /// No description provided for @settingsStorageDeleteInfo.
@@ -2354,14 +2354,14 @@ abstract class AppLocalizations {
   /// No description provided for @settingsMoreFromFadsec.
   ///
   /// In en, this message translates to:
-  /// **'More from FadSec Lab'**
+  /// **'More from Crypto Sys Development'**
   String get settingsMoreFromFadsec;
 
-  /// No description provided for @settingsFadocxDesc.
+  /// No description provided for @settingsAppDesc.
   ///
   /// In en, this message translates to:
   /// **'Your private document viewer'**
-  String get settingsFadocxDesc;
+  String get settingsAppDesc;
 
   /// No description provided for @settingsDangerZone.
   ///
@@ -2486,8 +2486,20 @@ abstract class AppLocalizations {
   /// No description provided for @settingsShareMessage.
   ///
   /// In en, this message translates to:
-  /// **'Check out Fadocx!\n\nAll-in-one document viewer: PDF, Office, spreadsheets, presentations, code files & OCR text extraction — fully offline, zero tracking, open-source.\n\nhttps://github.com/anonfaded/Fadocx'**
+  /// **'Check out Air Docs Viewer — offline document viewer for PDF, Office, spreadsheets, presentations, images, and more.'**
   String get settingsShareMessage;
+
+  /// No description provided for @settingsDeveloper.
+  ///
+  /// In en, this message translates to:
+  /// **'Developer'**
+  String get settingsDeveloper;
+
+  /// No description provided for @settingsDeveloperName.
+  ///
+  /// In en, this message translates to:
+  /// **'Crypto Sys Development'**
+  String get settingsDeveloperName;
 
   /// No description provided for @settingsShareVia.
   ///
@@ -2546,7 +2558,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPrivacyTransparency.
   ///
   /// In en, this message translates to:
-  /// **'Fadocx is built with transparency. Your documents are your business - not ours.'**
+  /// **'Air Docs Viewer is built with transparency. Your documents are your business - not ours.'**
   String get settingsPrivacyTransparency;
 
   /// No description provided for @settingsViewSourceCode.
@@ -2606,7 +2618,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsCopyright.
   ///
   /// In en, this message translates to:
-  /// **'© 2024 – 2026 FadSec Lab · GPLv3 · fadseclab.com'**
+  /// **'© 2026 Crypto Sys Development'**
   String get settingsCopyright;
 
   /// No description provided for @settingsTypeToConfirm.
@@ -2642,7 +2654,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPrivacyOpenSourceDesc.
   ///
   /// In en, this message translates to:
-  /// **'Code is public. Audit it yourself on GitHub.'**
+  /// **'Built with transparency and privacy in mind.'**
   String get settingsPrivacyOpenSourceDesc;
 
   /// No description provided for @settingsPrivacyNoAdsDesc.
@@ -3074,13 +3086,13 @@ abstract class AppLocalizations {
   /// No description provided for @viewerEditWithEngine.
   ///
   /// In en, this message translates to:
-  /// **'Edit with Fadocx Engine'**
+  /// **'Edit with Air Docs Viewer Engine'**
   String get viewerEditWithEngine;
 
   /// No description provided for @viewerEditWithEngineDesc.
   ///
   /// In en, this message translates to:
-  /// **'Open this spreadsheet in the Fadocx rendering engine for a faithful visual preview with full formatting, charts, and layout fidelity.'**
+  /// **'Open this spreadsheet in the Air Docs Viewer rendering engine for a faithful visual preview with full formatting, charts, and layout fidelity.'**
   String get viewerEditWithEngineDesc;
 
   /// No description provided for @viewerEditWithEngineNote.
@@ -3608,7 +3620,7 @@ abstract class AppLocalizations {
   /// No description provided for @lokitWarmingUp.
   ///
   /// In en, this message translates to:
-  /// **'Warming up the Fadocx engine...'**
+  /// **'Warming up the Air Docs Viewer engine...'**
   String get lokitWarmingUp;
 
   /// No description provided for @lokitAlmostThere.
@@ -3632,7 +3644,7 @@ abstract class AppLocalizations {
   /// No description provided for @drawerFadSecLab.
   ///
   /// In en, this message translates to:
-  /// **'FadSec Lab'**
+  /// **'Crypto Sys Development'**
   String get drawerFadSecLab;
 }
 

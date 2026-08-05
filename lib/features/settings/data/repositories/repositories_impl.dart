@@ -1,13 +1,13 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:fadocx/core/errors/failures.dart';
+import 'package:air_docs_viewer/core/errors/failures.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/core/services/storage_service.dart';
-import 'package:fadocx/features/settings/data/datasources/hive_datasource.dart';
-import 'package:fadocx/features/settings/data/models/hive_models.dart';
-import 'package:fadocx/features/settings/data/repositories/settings_mapper.dart';
-import 'package:fadocx/features/settings/domain/entities/app_settings.dart';
-import 'package:fadocx/features/settings/domain/repositories/repositories.dart';
+import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/features/settings/data/datasources/hive_datasource.dart';
+import 'package:air_docs_viewer/features/settings/data/models/hive_models.dart';
+import 'package:air_docs_viewer/features/settings/data/repositories/settings_mapper.dart';
+import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/features/settings/domain/repositories/repositories.dart';
 
 final log = Logger();
 

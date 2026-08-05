@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
+  <style>
+    html, body { margin: 0; padding: 0; background: #111; color: #fff; overflow-x: auto; }
+    #status {
+      font-family: sans-serif; text-align: center; padding: 24px; color: #ddd;
+    }
+    #pptx-container {
+      width: 100%;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Opening presentation…</div>
+  <div id="pptx-container"></div>
+  <script
+    src="pptx-renderer.browser.js"
+    onerror="AirDocsViewer.postMessage(JSON.stringify({type:'error',message:'PPTX renderer script could not be loaded'}))"
+  ></script>
+  <script>
+    const statusEl = document.getElementById('status');
+    const container = document.getElementById('pptx-container');
+
+    /** @type {any} */
+    let viewer = null;
+    // Relative zoom factor (1 = fit-to-width via renderer fitMode contain).
+    let currentZoom = 1;
+    const MIN_ZOOM = 0.25;
+    const MAX_ZOOM = 3;
+
+    function setStatus(text) {
+      statusEl.textContent = text || '';
+      statusEl.style.display = text ? 'block' : 'none';
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({ type: 'status', message: text || '' }));
+      }
+    }
+
+    function fail(message) {
+      setStatus(message);
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({ type: 'error', message: String(message) }));
+      }
+    }
+
+    function notifyZoom() {
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({
+          type: 'zoom',
+          zoom: currentZoom,
+        }));
+      }
+    }
+
+    /**
+     * Uses the pptx-renderer built-in zoomFactor (works with fitMode contain).
+     * CSS zoom was ignored / fought by the renderer — this re-renders slides.
+     */
+    async function applyZoom(zoom) {
+      const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(zoom) || 1));
+      currentZoom = Math.round(next * 100) / 100;
+      if (viewer && typeof viewer.setZoom === 'function') {
+        // setZoom expects percent (100 = 1x relative to fit-width).
+        await viewer.setZoom(currentZoom * 100);
+      }
+      notifyZoom();
+      return currentZoom;
+    }
+
+    window.fitPptxToWidth = function() {
+      // fitMode "contain" already fits slide width; reset relative zoom to 1.
+      return applyZoom(1);
+    };
+
+    window.setPptxZoom = function(zoom) {
+      return applyZoom(zoom);
+    };
+
+    window.adjustPptxZoom = function(delta) {
+      return applyZoom(currentZoom + (Number(delta) || 0));
+    };
+
+    window.getPptxZoom = function() {
+      return currentZoom;
+    };
+
+    function b64ToBytes(b64) {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    async function loadChunks(count) {
+      const parts = [];
+      for (let i = 0; i < count; i++) {
+        setStatus('Loading slides… ' + Math.min(99, Math.round((i / Math.max(count, 1)) * 100)) + '%');
+        const chunk = await new Promise((resolve, reject) => {
+          window.__pptxChunkResolvers = window.__pptxChunkResolvers || {};
+          const id = 'p' + i + '_' + Date.now();
+          const timer = setTimeout(() => {
+            delete window.__pptxChunkResolvers[id];
+            reject(new Error('Timed out loading presentation chunk ' + i));
+          }, 20000);
+          window.__pptxChunkResolvers[id] = (value) => {
+            clearTimeout(timer);
+            delete window.__pptxChunkResolvers[id];
+            resolve(value);
+          };
+          if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+            AirDocsViewer.postMessage(JSON.stringify({ type: 'getChunk', index: i, requestId: id }));
+          } else {
+            reject(new Error('Offline bridge unavailable'));
+          }
+        });
+        parts.push(b64ToBytes(chunk));
+      }
+      let total = 0;
+      for (const p of parts) total += p.length;
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const p of parts) {
+        merged.set(p, offset);
+        offset += p.length;
+      }
+      return merged;
+    }
+
+    window.receiveDocChunk = function(requestId, chunkB64) {
+      const resolvers = window.__pptxChunkResolvers || {};
+      if (resolvers[requestId]) resolvers[requestId](chunkB64);
+    };
+
+    window.startOfflinePptx = async function(chunkCount) {
+      try {
+        if (!window.PptxViewer || !window.RECOMMENDED_ZIP_LIMITS) {
+          throw new Error('PPTX renderer failed to load');
+        }
+        setStatus('Preparing PPTX…');
+        const bytes = await loadChunks(chunkCount);
+        setStatus('Rendering slides…');
+        container.innerHTML = '';
+        viewer = await PptxViewer.open(bytes.buffer, container, {
+          zipLimits: RECOMMENDED_ZIP_LIMITS,
+          // Native fit-to-width; user zoom multiplies this via setZoom().
+          fitMode: 'contain',
+          zoomPercent: 100,
+          renderMode: 'list',
+          listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
+          lazySlides: true,
+          lazyMedia: true,
+        });
+        currentZoom = 1;
+        notifyZoom();
+        setStatus('');
+        if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+          AirDocsViewer.postMessage(JSON.stringify({ type: 'rendered' }));
+        }
+      } catch (e) {
+        viewer = null;
+        fail(e && e.message ? e.message : String(e));
+      }
+    };
+  </script>
+</body>
+</html>

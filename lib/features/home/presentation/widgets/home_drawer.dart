@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter/services.dart';
-import 'package:simple_icons/simple_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:fadocx/config/routing/app_router.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/core/presentation/widgets/drawer_update_banner.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Custom animated hamburger icon with bottom line that grows when sidebar opens
 class AnimatedHamburgerIcon extends StatefulWidget {
@@ -188,17 +184,14 @@ class _HomeDrawerState extends ConsumerState<HomeDrawer> {
             children: [
               Row(
                 children: [
-                  Image.asset(
-                    'assets/fadocx_header_landscape_png.png',
-                    height: 32,
-                    fit: BoxFit.contain,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    AppLocalizations.of(context)!.homeTitle,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                  Expanded(
+                    child: Image.asset(
+                      'assets/air_docs_logo.png',
+                      height: 48,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      alignment: Alignment.centerLeft,
+                    ),
                   ),
                 ],
               ),
@@ -220,10 +213,6 @@ class _HomeDrawerState extends ConsumerState<HomeDrawer> {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             children: [
-              // Update available banner (auto-hides when no update)
-              const DrawerUpdateBanner(),
-              const SizedBox(height: 12),
-
               // Main drawer group
               Container(
                 decoration: BoxDecoration(
@@ -259,68 +248,20 @@ class _HomeDrawerState extends ConsumerState<HomeDrawer> {
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              _GoldDonateCard(onTap: () => _showPatreonSheet(context)),
-              const SizedBox(height: 12),
             ],
           ),
         ),
 
-        // Footer with copyright + Discord + FadSecLab
         const Divider(height: 1),
         Padding(
           padding: const EdgeInsets.all(16),
-          child: InkWell(
-            onTap: () => _showFadSecLabSheet(context),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text.rich(
-                      TextSpan(
-                        text: '\u00a9 ',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.redAccent,
-                            ),
-                        children: [
-                          TextSpan(
-                            text: 'fadseclab.com',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.redAccent,
-                                    ),
-                          ),
-                          TextSpan(
-                            text: ' 2024 \u2013 2026',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.redAccent,
-                                    ),
-                          ),
-                        ],
-                      ),
-                    ),
+          child: Center(
+            child: Text(
+              AppLocalizations.of(context)!.settingsCopyright,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                  // Discord icon
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => _showDiscordSheet(context),
-                      borderRadius: BorderRadius.circular(6),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Icon(
-                          SimpleIcons.discord,
-                          size: 18,
-                          color: const Color(0xFF5865F2),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              textAlign: TextAlign.center,
             ),
           ),
         ),
@@ -484,450 +425,6 @@ class _HomeDrawerState extends ConsumerState<HomeDrawer> {
       indent: 56,
       color:
           Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.48),
-    );
-  }
-
-  void _showPatreonSheet(BuildContext context) {
-    const patreonUrl = 'https://patreon.com/c/fadedx';
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: brightness == Brightness.dark
-              ? const Color(0xFF1C1C1E)
-              : const Color(0xFFF2F2F7),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        ),
-        padding: EdgeInsets.only(
-          top: 6,
-          bottom: MediaQuery.of(context).padding.bottom + 6,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle
-            Container(
-              width: 36,
-              height: 5,
-              margin: const EdgeInsets.only(top: 4, bottom: 12),
-              decoration: BoxDecoration(
-                color: brightness == Brightness.dark
-                    ? Colors.white.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            // Patreon icon + title
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-              child: Column(
-                children: [
-                  const Icon(SimpleIcons.patreon,
-                      size: 40, color: Color(0xFFD4A017)),
-                  const SizedBox(height: 12),
-                  Text(
-                    AppLocalizations.of(context)!.supportDevelopment,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Explanation
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                AppLocalizations.of(context)!.patreonDescription,
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Visit Patreon
-            _sheetActionButton(
-              context,
-              icon: SimpleIcons.patreon,
-              label: AppLocalizations.of(context)!.visitPatreon,
-              onTap: () {
-                Navigator.pop(ctx);
-                _openUrl(patreonUrl);
-              },
-            ),
-            const SizedBox(height: 8),
-            // Copy link
-            _sheetActionButton(
-              context,
-              icon: Icons.content_copy,
-              label: AppLocalizations.of(context)!.copyLink,
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: patreonUrl));
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text(
-                          AppLocalizations.of(context)!.copiedToClipboard)),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sheetActionButton(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    final brightness = Theme.of(context).brightness;
-    final bgColor =
-        brightness == Brightness.dark ? const Color(0xFF2C2C2E) : Colors.white;
-    final textColor = Theme.of(context).colorScheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: bgColor,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 20, color: textColor),
-                    const SizedBox(width: 10),
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: textColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showDiscordSheet(BuildContext context) {
-    const discordUrl = 'https://discord.gg/kvAZvdkuuN';
-    final brightness = Theme.of(context).brightness;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: brightness == Brightness.dark
-              ? const Color(0xFF1C1C1E)
-              : const Color(0xFFF2F2F7),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        ),
-        padding: EdgeInsets.only(
-          top: 6,
-          bottom: MediaQuery.of(context).padding.bottom + 6,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 5,
-              margin: const EdgeInsets.only(top: 4, bottom: 12),
-              decoration: BoxDecoration(
-                color: brightness == Brightness.dark
-                    ? Colors.white.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-              child: Text(
-                AppLocalizations.of(context)!.discordTitle,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                discordUrl,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            _sheetActionButton(
-              context,
-              icon: SimpleIcons.discord,
-              label: AppLocalizations.of(context)!.openInBrowser,
-              onTap: () {
-                Navigator.pop(ctx);
-                _openUrl(discordUrl);
-              },
-            ),
-            const SizedBox(height: 8),
-            _sheetActionButton(
-              context,
-              icon: Icons.content_copy,
-              label: AppLocalizations.of(context)!.copyLink,
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: discordUrl));
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text(
-                          AppLocalizations.of(context)!.copiedToClipboard)),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showFadSecLabSheet(BuildContext context) {
-    const fadsecLabUrl = 'https://fadseclab.com';
-    final brightness = Theme.of(context).brightness;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: brightness == Brightness.dark
-              ? const Color(0xFF1C1C1E)
-              : const Color(0xFFF2F2F7),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        ),
-        padding: EdgeInsets.only(
-          top: 6,
-          bottom: MediaQuery.of(context).padding.bottom + 6,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 5,
-              margin: const EdgeInsets.only(top: 4, bottom: 12),
-              decoration: BoxDecoration(
-                color: brightness == Brightness.dark
-                    ? Colors.white.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-              child: Text(
-                AppLocalizations.of(context)!.drawerFadSecLab,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                fadsecLabUrl,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            _sheetActionButton(
-              context,
-              icon: Icons.open_in_browser,
-              label: AppLocalizations.of(context)!.openInBrowser,
-              onTap: () {
-                Navigator.pop(ctx);
-                _openUrl(fadsecLabUrl);
-              },
-            ),
-            const SizedBox(height: 8),
-            _sheetActionButton(
-              context,
-              icon: Icons.content_copy,
-              label: AppLocalizations.of(context)!.copyLink,
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: fadsecLabUrl));
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text(
-                          AppLocalizations.of(context)!.copiedToClipboard)),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openUrl(String url) async {
-    try {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (_) {}
-  }
-}
-
-/// Gold shimmer animation for the donation card — matches
-/// the golden Patreon shimmer in the home screen app bar.
-class _GoldDonateCard extends StatefulWidget {
-  final VoidCallback onTap;
-
-  const _GoldDonateCard({required this.onTap});
-
-  @override
-  State<_GoldDonateCard> createState() => _GoldDonateCardState();
-}
-
-class _GoldDonateCardState extends State<_GoldDonateCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    const goldColor = Color(0xFFD4A017);
-
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return GestureDetector(
-          onTap: () => widget.onTap(),
-          child: ShaderMask(
-            shaderCallback: (bounds) {
-              const cycle = 300.0;
-              final offset = (_controller.value * cycle) % cycle;
-              return const LinearGradient(
-                tileMode: TileMode.repeated,
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color(0xFFC9A214),
-                  Color(0xFFDAB125),
-                  Color(0xFFF5D547),
-                  Color(0xFFFFE873),
-                  Color(0xFFF5D547),
-                  Color(0xFFDAB125),
-                  Color(0xFFC9A214),
-                ],
-                stops: [0.00, 0.18, 0.36, 0.50, 0.64, 0.82, 1.00],
-              ).createShader(Rect.fromLTWH(
-                bounds.left - offset,
-                bounds.top,
-                cycle,
-                bounds.height,
-              ));
-            },
-            blendMode: BlendMode.srcIn,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: goldColor.withValues(alpha: isDark ? 0.1 : 0.16),
-                border: Border.all(
-                  color: goldColor.withValues(alpha: isDark ? 0.25 : 0.32),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: goldColor.withValues(alpha: isDark ? 0.18 : 0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      SimpleIcons.patreon,
-                      size: 18,
-                      color: Color(0xFFD4A017),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          AppLocalizations.of(context)!.supportDevelopment,
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: goldColor,
-                                  ),
-                          softWrap: true,
-                          overflow: TextOverflow.visible,
-                        ),
-                        Text(
-                          AppLocalizations.of(context)!.drawerUnlockBenefits,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: goldColor.withValues(alpha: 0.7),
-                                  ),
-                          softWrap: true,
-                          overflow: TextOverflow.visible,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
-import 'package:fadocx/features/viewer/domain/entities/sheet_entity.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'professional_sheet_viewer.dart';
 import 'modern_pdf_viewer.dart';
 import 'text_document_viewer.dart';
@@ -24,25 +25,39 @@ class DocumentViewerFactory {
     Key? sheetViewerKey,
     double sheetZoom = 1.0,
   }) {
-    return switch (document.format.toUpperCase()) {
-      'XLSX' || 'XLS' || 'CSV' || 'ODS' => _buildSpreadsheetViewer(
-          document, onSheetSelectionChanged, sheetViewerKey,
-          zoom: sheetZoom),
-      'PDF' => _buildPdfViewer(filePath, fileName, invertColors, textMode,
-          onInvertToggle, onTextModeToggle, onTap, onPageChanged),
-      'PNG' ||
-      'JPG' ||
-      'JPEG' ||
-      'GIF' ||
-      'WEBP' ||
-      'BMP' ||
-      'SVG' ||
-      'ICO' ||
-      'PSD' =>
-        _buildImageViewer(filePath, onTap),
-      'TXT' => _buildTextViewer(document, onTap: onTap),
-      _ => _buildUnsupportedViewer(document.format),
-    };
+    final format = document.format.toUpperCase();
+    final ext = SupportedFormats.extensionOf(filePath) ??
+        SupportedFormats.extensionOf(fileName ?? '') ??
+        format.toLowerCase();
+    final kind = SupportedFormats.viewerKindOf(ext);
+
+    if (kind == ViewerKind.spreadsheet || document.isSpreadsheet) {
+      return _buildSpreadsheetViewer(
+        document,
+        onSheetSelectionChanged,
+        sheetViewerKey,
+        zoom: sheetZoom,
+      );
+    }
+    if (kind == ViewerKind.pdf || format == 'PDF') {
+      return _buildPdfViewer(
+        filePath,
+        fileName,
+        invertColors,
+        textMode,
+        onInvertToggle,
+        onTextModeToggle,
+        onTap,
+        onPageChanged,
+      );
+    }
+    if (kind == ViewerKind.image || SupportedFormats.isImage(ext)) {
+      return _buildImageViewer(filePath, onTap);
+    }
+    if (kind == ViewerKind.text || format == 'TXT') {
+      return _buildTextViewer(document, onTap: onTap);
+    }
+    return _buildUnsupportedViewer(document.format);
   }
 
   static Widget _buildSpreadsheetViewer(ParsedDocumentEntity document,
@@ -77,14 +92,20 @@ class DocumentViewerFactory {
                   ),
                   Expanded(
                     child: TabBarView(
-                      children: document.sheets
-                          .map((s) => _buildSheetTable(
-                                s,
-                                onSelectionChanged,
-                                sheetViewerKey,
-                                zoom: zoom,
-                              ))
-                          .toList(),
+                      children: [
+                        for (var i = 0; i < document.sheets.length; i++)
+                          _buildSheetTable(
+                            document.sheets[i],
+                            onSelectionChanged,
+                            // GlobalKey must be unique among mounted widgets.
+                            // Only the first sheet keeps it for search jump;
+                            // other sheets use a ValueKey.
+                            i == 0
+                                ? sheetViewerKey
+                                : ValueKey('sheet_${i}_${document.sheets[i].name}'),
+                            zoom: zoom,
+                          ),
+                      ],
                     ),
                   ),
                 ],

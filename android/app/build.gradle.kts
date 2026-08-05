@@ -9,7 +9,7 @@ import java.io.FileInputStream
 import java.util.Properties
 
 // ── Versioning (manual control) ──
-val appVersionCode = 3
+val appVersionCode = 6
 val appVersionName = "1.0.0"
 
 // ── Release keystore signing ──
@@ -20,40 +20,39 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.fadseclab.fadocx"
+    namespace = "com.airdocsviewer"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
-        }
-    }
-
     defaultConfig {
-        applicationId = "com.fadseclab.fadocx"
+        applicationId = "com.airdocsviewer"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 26  // Required for Apache POI and log4j compatibility
+        minSdk = 26  // Android 8.0 (API 26) through latest — POI / log4j floor
         targetSdk = flutter.targetSdkVersion
+        // Same document features (PDF / DOCX / PPTX / Excel) on all supported APIs.
         versionCode = appVersionCode
         versionName = appVersionName
         multiDexEnabled = true
+        // Launcher icon label only (home screen). Package id stays com.airdocsviewer.
+        manifestPlaceholders["appName"] = "AirDoc Viewer"
     }
 
     signingConfigs {
         create("release") {
             if (keystorePropertiesFile.exists()) {
-                storeFile = file(keystoreProperties["storeFile"] as String)
+                // storeFile in key.properties is relative to the android/ folder.
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
@@ -63,7 +62,12 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                // Local testing without key.properties — use debug keystore.
+                signingConfigs.getByName("debug")
+            }
             // R8 minification enabled with selective keep rules for POI/XMLBeans/logging
             // Critical classes (POI, XMLBeans, logging, JNI) are kept unobfuscated
             // Everything else (Flutter, app code, unused deps) is aggressively minified
@@ -71,22 +75,6 @@ android {
             isShrinkResources = true
             // Use only our custom ProGuard rules (not the default Android ones)
             proguardFiles("proguard-rules.pro")
-        }
-    }
-
-    flavorDimensions += "environment"
-
-    productFlavors {
-        create("beta") {
-            dimension = "environment"
-            applicationIdSuffix = ".beta"
-            manifestPlaceholders["appName"] = "Fadocx Beta"
-            versionName = "${appVersionName}-beta1" // Increment the suffix for each beta release (e.g., -beta2, -beta3, etc.)
-        }
-        create("prod") {
-            dimension = "environment"
-            manifestPlaceholders["appName"] = "Fadocx"
-            versionName = appVersionName
         }
     }
 
@@ -117,9 +105,54 @@ android {
             "sor", "sample", "lm", "mod", ""
         )
     }
+
+    // Avoid Android Studio file locks on lint cache / old release output folders.
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+}
+
+// Default APK names for Android Studio / Gradle builds:
+//   AirDocsViewer-release.apk
+//   AirDocsViewer-debug.apk
+base {
+    archivesName.set("AirDocsViewer")
+}
+
+android.applicationVariants.configureEach {
+    val buildTypeName = buildType.name
+    outputs.configureEach {
+        (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
+            .outputFileName = "AirDocsViewer-$buildTypeName.apk"
+    }
+}
+
+// Mirror release APK + metadata into android/app/release for Android Studio
+// "Locate" / Generate Signed APK. Primary output stays at build/app/outputs/apk/release.
+afterEvaluate {
+    val copyReleaseApkToIdeFolder = tasks.register<Copy>("copyReleaseApkToIdeFolder") {
+        dependsOn("packageRelease")
+        from(layout.buildDirectory.dir("outputs/apk/release")) {
+            include("AirDocsViewer-release.apk")
+            include("output-metadata.json")
+            include("baselineProfiles/**")
+        }
+        into(layout.projectDirectory.dir("release"))
+        doFirst {
+            layout.projectDirectory.dir("release").asFile.mkdirs()
+        }
+    }
+
+    // AGP reads android/app/release/output-metadata.json; ensure copy runs first.
+    tasks.matching { it.name == "createReleaseApkListingFileRedirect" }.configureEach {
+        dependsOn(copyReleaseApkToIdeFolder)
+    }
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+
     // Apache POI for native document parsing (XLSX, XLS, CSV, DOC)
     implementation("org.apache.poi:poi:5.2.3")
     implementation("org.apache.poi:poi-ooxml:5.2.3") {

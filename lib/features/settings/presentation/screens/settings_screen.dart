@@ -4,22 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:simple_icons/simple_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:fadocx/config/theme/theme_provider.dart';
-import 'package:fadocx/config/routing/app_router.dart';
-import 'package:fadocx/core/presentation/widgets/connected_sheet_group.dart';
-import 'package:fadocx/core/presentation/widgets/floating_dock_scaffold.dart';
-import 'package:fadocx/core/presentation/widgets/update_available_sheet.dart';
-import 'package:fadocx/core/presentation/widgets/link_tile.dart';
-import 'package:fadocx/core/services/update_check_service.dart';
-import 'package:fadocx/core/services/storage_service.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/features/settings/presentation/providers/locale_provider.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
+import 'package:air_docs_viewer/core/presentation/layout/shell_layout.dart';
+import 'package:air_docs_viewer/core/presentation/widgets/connected_sheet_group.dart';
+import 'package:air_docs_viewer/core/presentation/widgets/floating_dock_scaffold.dart';
+import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/locale_provider.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:share_plus/share_plus.dart';
 
 class SettingsScreen extends ConsumerWidget {
   final bool tabMode;
@@ -29,7 +23,6 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final settings = ref.watch(appSettingsProvider);
-    final themeMode = ref.watch(themeModeProvider);
     final packageInfoAsync = ref.watch(packageInfoProvider);
 
     final settingsBody = settings.when(
@@ -38,18 +31,13 @@ class SettingsScreen extends ConsumerWidget {
           return const Center(child: CircularProgressIndicator());
         }
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 100, 16, 100),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            ShellLayout.topContentInset(context),
+            16,
+            ShellLayout.bottomContentInset(context),
+          ),
           children: [
-            _buildSectionHeader(context, l10n.settingsAppearance),
-            _buildSettingsGroup(context, [
-              _SettingsRow(
-                icon: Icons.palette_outlined,
-                title: l10n.theme,
-                value: _getThemeDisplayName(context, themeMode),
-                onTap: () => _showThemePicker(context, ref, themeMode),
-              ),
-            ]),
-            const SizedBox(height: 24),
             _buildSectionHeader(context, l10n.language),
             _buildSettingsGroup(context, [
               _SettingsRow(
@@ -66,38 +54,18 @@ class SettingsScreen extends ConsumerWidget {
                 builder: (context, ref, _) {
                   final recentFilesAsync = ref.watch(recentFilesProvider);
                   return recentFilesAsync.when(
-                    loading: () => Column(children: [
-                      _SettingsRow(
-                        icon: Icons.folder_outlined,
-                        title: l10n.settingsDocumentsSize,
-                        value: l10n.settingsCalculating,
-                        onTap: () => _showStorageInfo(context),
-                      ),
-                      _divider(context),
-                      _SettingsRow(
-                        icon: Icons.settings_backup_restore,
-                        title: l10n.settingsCustomStorage,
-                        value: l10n.comingSoon,
-                        isComingSoon: true,
-                        onTap: null,
-                      ),
-                    ]),
-                    error: (error, stack) => Column(children: [
-                      _SettingsRow(
-                        icon: Icons.folder_outlined,
-                        title: l10n.settingsDocumentsSize,
-                        value: l10n.settingsUnknown,
-                        onTap: () => _showStorageInfo(context),
-                      ),
-                      _divider(context),
-                      _SettingsRow(
-                        icon: Icons.settings_backup_restore,
-                        title: l10n.settingsCustomStorage,
-                        value: l10n.comingSoon,
-                        isComingSoon: true,
-                        onTap: null,
-                      ),
-                    ]),
+                    loading: () => _SettingsRow(
+                      icon: Icons.folder_outlined,
+                      title: l10n.settingsDocumentsSize,
+                      value: l10n.settingsCalculating,
+                      onTap: () => _showStorageInfo(context),
+                    ),
+                    error: (error, stack) => _SettingsRow(
+                      icon: Icons.folder_outlined,
+                      title: l10n.settingsDocumentsSize,
+                      value: l10n.settingsUnknown,
+                      onTap: () => _showStorageInfo(context),
+                    ),
                     data: (files) {
                       final activeFiles =
                           files.where((f) => !f.isDeleted).toList();
@@ -108,54 +76,15 @@ class SettingsScreen extends ConsumerWidget {
                         StorageService.formatBytes(totalBytes),
                         totalCount,
                       );
-                      return Column(children: [
-                        _SettingsRow(
-                          icon: Icons.folder_outlined,
-                          title: l10n.settingsDocumentsSize,
-                          value: value,
-                          onTap: () => _showStorageInfo(context),
-                        ),
-                        _divider(context),
-                        _SettingsRow(
-                          icon: Icons.settings_backup_restore,
-                          title: l10n.settingsCustomStorage,
-                          value: l10n.comingSoon,
-                          isComingSoon: true,
-                          onTap: null,
-                        ),
-                      ]);
+                      return _SettingsRow(
+                        icon: Icons.folder_outlined,
+                        title: l10n.settingsDocumentsSize,
+                        value: value,
+                        onTap: () => _showStorageInfo(context),
+                      );
                     },
                   );
                 },
-              ),
-            ]),
-            const SizedBox(height: 24),
-            _buildSectionHeader(context, l10n.settingsUpdates),
-            _buildSettingsGroup(context, [
-              Consumer(
-                builder: (context, ref, _) {
-                  final settings = ref.watch(appSettingsProvider);
-                  final enabled = settings.when(
-                    data: (s) => s?.autoUpdateCheck ?? true,
-                    loading: () => true,
-                    error: (_, __) => true,
-                  );
-
-                  return _buildAutoUpdateRow(context, ref, enabled);
-                },
-              ),
-              _divider(context),
-              _buildCheckUpdatesRow(context, ref),
-            ]),
-            const SizedBox(height: 24),
-            _buildSectionHeader(context, l10n.settingsSecurity),
-            _buildSettingsGroup(context, [
-              _SettingsRow(
-                icon: Icons.lock_outline,
-                title: l10n.settingsAppLock,
-                value: l10n.comingSoon,
-                isComingSoon: true,
-                onTap: null,
               ),
             ]),
             const SizedBox(height: 24),
@@ -187,89 +116,16 @@ class SettingsScreen extends ConsumerWidget {
               ),
               _divider(context),
               _SettingsRow(
-                icon: Icons.share,
-                title: l10n.settingsShareApp,
-                onTap: () => _showShareOptions(context),
-              ),
-              _divider(context),
-              LinkTile.url(
-                icon: SimpleIcons.github,
-                title: l10n.settingsSourceCode,
-                value: 'https://github.com/anonfaded/Fadocx',
-              ),
-              _divider(context),
-              LinkTile.email(
-                icon: Icons.email_outlined,
-                title: l10n.settingsContact,
-                value: 'contact@fadseclab.com',
-              ),
-              _divider(context),
-              LinkTile.url(
-                icon: SimpleIcons.discord,
-                title: l10n.settingsJoinCommunity,
-                value: 'https://discord.gg/kvAZvdkuuN',
+                icon: Icons.business_outlined,
+                title: l10n.settingsDeveloper,
+                value: l10n.settingsDeveloperName,
+                onTap: null,
               ),
               _divider(context),
               _SettingsRow(
                 icon: Icons.shield_outlined,
                 title: l10n.settingsPrivacyPolicy,
                 onTap: () => _showPrivacyPolicy(context),
-              ),
-              _divider(context),
-              _patreonRow(context),
-            ]),
-            const SizedBox(height: 24),
-            _buildSectionHeader(context, l10n.settingsMoreFromFadsec),
-            _buildSettingsGroup(context, [
-              _otherAppCard(
-                context,
-                imageAsset: 'assets/other_apps/fadcam.png',
-                name: 'FadCam',
-                description: l10n.settingsFadcamDesc,
-                platformIcons: [SimpleIcons.android],
-                url: 'https://github.com/anonfaded/FadCam',
-              ),
-              _divider(context),
-              _otherAppCard(
-                context,
-                imageAsset: 'assets/other_apps/qurancli.png',
-                name: 'QuranCLI',
-                description: l10n.settingsQuranCliDesc,
-                platformIcons: [
-                  Icons.window,
-                  SimpleIcons.linux,
-                  SimpleIcons.apple
-                ],
-                url: 'https://github.com/anonfaded/QuranCLI',
-                platformNote: l10n.settingsMacosComingSoon,
-              ),
-              _divider(context),
-              _otherAppCard(
-                context,
-                imageAsset: 'assets/other_apps/fadcrypt.png',
-                name: 'FadCrypt',
-                description: l10n.settingsFadcryptDesc,
-                platformIcons: [
-                  Icons.window,
-                  SimpleIcons.linux,
-                  SimpleIcons.apple
-                ],
-                url: 'https://github.com/anonfaded/FadCrypt',
-                platformNote: l10n.settingsMacosComingSoon,
-              ),
-              _divider(context),
-              _otherAppCard(
-                context,
-                imageAsset: 'assets/other_apps/fadcat.png',
-                name: 'FadCat',
-                description: l10n.settingsFadcatDesc,
-                platformIcons: [
-                  Icons.window,
-                  SimpleIcons.linux,
-                  SimpleIcons.apple
-                ],
-                url: 'https://github.com/anonfaded/FadCat',
-                iconBgColor: Colors.black.withValues(alpha: 0.2),
               ),
             ]),
             const SizedBox(height: 24),
@@ -294,9 +150,6 @@ class SettingsScreen extends ConsumerWidget {
                 onConfirm: () async {
                   await ref.read(settingsMutatorProvider).clearSettings();
                   if (!context.mounted) return;
-                  ref
-                      .read(themeModeProvider.notifier)
-                      .setThemeModeFromString('dark');
                   ref.read(localeProvider.notifier).setLocale('en');
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -398,17 +251,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  String _getThemeDisplayName(BuildContext context, ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.dark:
-        return AppLocalizations.of(context)!.themeDark;
-      case ThemeMode.light:
-        return AppLocalizations.of(context)!.themeLight;
-      case ThemeMode.system:
-        return AppLocalizations.of(context)!.themeSystem;
-    }
-  }
-
   String _getLanguageDisplayName(BuildContext context, WidgetRef ref) {
     final locale = ref.watch(localeProvider);
     final l10n = AppLocalizations.of(context)!;
@@ -436,16 +278,6 @@ class SettingsScreen extends ConsumerWidget {
       default:
         return l10n.languageEnglish;
     }
-  }
-
-  void _copyToClipboard(BuildContext context, String text) {
-    final l10n = AppLocalizations.of(context)!;
-    Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(l10n.settingsCopiedText(text)),
-          duration: const Duration(seconds: 2)),
-    );
   }
 
   void _showStorageInfo(BuildContext context) {
@@ -859,76 +691,24 @@ class SettingsScreen extends ConsumerWidget {
         child: Column(children: [
           Icon(icon, size: 18, color: color),
           const SizedBox(height: 6),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
-          Text(size,
-              style:
-                  TextStyle(fontSize: 10, color: color.withValues(alpha: 0.7))),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w600, color: color),
+          ),
+          Text(
+            size,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style:
+                TextStyle(fontSize: 10, color: color.withValues(alpha: 0.7)),
+          ),
         ]),
       );
-
-  Widget _buildAutoUpdateRow(
-      BuildContext context, WidgetRef ref, bool enabled) {
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color:
-                      colorScheme.surfaceContainerHigh.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.system_update_outlined,
-                  size: 20,
-                  color: colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.settingsAutoUpdateCheck,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    Text(
-                      l10n.settingsAutoUpdateCheckDesc,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                width: 48,
-                child: Switch(
-                  value: enabled,
-                  onChanged: (value) {
-                    ref
-                        .read(settingsMutatorProvider)
-                        .updateAutoUpdateCheck(value);
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildOnboardingReplayRow(
       BuildContext context, WidgetRef ref, bool show) {
@@ -985,162 +765,6 @@ class SettingsScreen extends ConsumerWidget {
                   },
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showThemePicker(
-      BuildContext context, WidgetRef ref, ThemeMode current) {
-    final l10n = AppLocalizations.of(context)!;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: _bottomSheetDecoration(context),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _handle(context),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                child: Text(
-                  l10n.settingsChooseTheme,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ),
-              ConnectedSheetGroup(
-                children: [
-                  ConnectedSheetRow(
-                    leading: SheetIconChip.icon(
-                      icon: Icons.dark_mode,
-                      color: Theme.of(context).colorScheme.primary,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHigh
-                          .withValues(alpha: 0.9),
-                    ),
-                    title: l10n.themeDark,
-                    trailing: Icon(
-                      current == ThemeMode.dark
-                          ? Icons.check_circle
-                          : Icons.circle_outlined,
-                      color: current == ThemeMode.dark
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outline,
-                    ),
-                    onTap: () {
-                      ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(ThemeMode.dark);
-                      ref.read(settingsMutatorProvider).updateTheme('dark');
-                      Navigator.pop(context);
-                    },
-                  ),
-                  ConnectedSheetRow(
-                    leading: SheetIconChip.icon(
-                      icon: Icons.light_mode,
-                      color: Theme.of(context).colorScheme.primary,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHigh
-                          .withValues(alpha: 0.9),
-                    ),
-                    title: l10n.themeLight,
-                    trailing: Icon(
-                      current == ThemeMode.light
-                          ? Icons.check_circle
-                          : Icons.circle_outlined,
-                      color: current == ThemeMode.light
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outline,
-                    ),
-                    onTap: () {
-                      ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(ThemeMode.light);
-                      ref.read(settingsMutatorProvider).updateTheme('light');
-                      Navigator.pop(context);
-                    },
-                  ),
-                  ConnectedSheetRow(
-                    leading: SheetIconChip.icon(
-                      icon: Icons.settings_brightness,
-                      color: Theme.of(context).colorScheme.primary,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHigh
-                          .withValues(alpha: 0.9),
-                    ),
-                    title: l10n.themeSystem,
-                    trailing: Icon(
-                      current == ThemeMode.system
-                          ? Icons.check_circle
-                          : Icons.circle_outlined,
-                      color: current == ThemeMode.system
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outline,
-                    ),
-                    onTap: () {
-                      ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(ThemeMode.system);
-                      ref.read(settingsMutatorProvider).updateTheme('system');
-                      Navigator.pop(context);
-                    },
-                  ),
-                  ConnectedSheetRow(
-                    leading: SheetIconChip.icon(
-                      icon: Icons.dark_mode_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHigh
-                          .withValues(alpha: 0.9),
-                    ),
-                    title: l10n.whatsNewAmoled,
-                    detail: Text(l10n.whatsNewAmoledDesc),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            l10n.comingSoon,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: Theme.of(context).colorScheme.primary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.circle_outlined,
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ],
-                    ),
-                    onTap: () {},
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
             ],
           ),
         ),
@@ -1413,189 +1037,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildCheckUpdatesRow(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _manualUpdateCheck(context, ref),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color:
-                      colorScheme.surfaceContainerHigh.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.cloud_download_outlined,
-                  size: 20,
-                  color: colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  l10n.settingsCheckForUpdates,
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-              ),
-              Icon(
-                Icons.chevron_right,
-                size: 20,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _manualUpdateCheck(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context)!;
-    // Show loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => Center(
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text(l10n.settingsCheckingUpdates),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
-      final result = await UpdateCheckService.checkForUpdate(
-        currentVersion: currentVersion,
-      );
-
-      if (!context.mounted) return;
-      Navigator.pop(context); // dismiss loading
-
-      if (result.errorOccurred) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.settingsNoInternet)),
-        );
-      } else if (result.isUpdateAvailable) {
-        UpdateAvailableSheet.show(
-          context,
-          currentVersion: currentVersion,
-          stableVersion: result.stableVersion,
-          stableUrl: result.stableUrl,
-          betaVersion: result.betaVersion,
-          betaUrl: result.betaUrl,
-          hasStableUpdate: result.hasStableUpdate,
-          hasBetaUpdate: result.hasBetaUpdate,
-        );
-      } else {
-        _showUpToDateDialog(context, currentVersion, result.betaVersion);
-      }
-    } catch (e) {
-      if (!context.mounted) return;
-      Navigator.pop(context); // dismiss loading
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.settingsNoInternet)),
-      );
-    }
-  }
-
-  void _showUpToDateDialog(
-      BuildContext context, String version, String? betaVersion) {
-    final l10n = AppLocalizations.of(context)!;
-    final hasNewerBeta = betaVersion != null &&
-        UpdateCheckService.isNewerThan(version, betaVersion);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.green.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child:
-                  const Icon(Icons.check_circle, size: 32, color: Colors.green),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.settingsUpToDate,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.settingsUpToDateDesc(version),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            if (hasNewerBeta) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .tertiaryContainer
-                      .withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.science_outlined,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.tertiary),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        l10n.settingsBetaAvailable(betaVersion),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(l10n.ok),
-          ),
-        ],
-      ),
-    );
-  }
-
   BoxDecoration _bottomSheetDecoration(BuildContext context) {
     return BoxDecoration(
       gradient: LinearGradient(
@@ -1629,8 +1070,7 @@ class SettingsScreen extends ConsumerWidget {
     final buildNumber = packageInfo.buildNumber;
     final packageName = packageInfo.packageName;
     final versionString = l10n.settingsVersionWithBuild(version, buildNumber);
-    final isBeta = packageName.endsWith('.beta');
-    final iconAsset = isBeta ? 'assets/fadocx_beta.png' : 'assets/fadocx.png';
+    const iconAsset = 'assets/air_docs_emblem.png';
 
     showModalBottomSheet(
       context: context,
@@ -1736,125 +1176,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _showShareOptions(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag handle
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Share icon
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Icon(
-                Icons.share,
-                size: 40,
-                color: theme.colorScheme.onPrimaryContainer,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.settingsShareApp,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Message preview
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                l10n.settingsShareMessage,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  height: 1.5,
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Action buttons
-            Row(
-              children: [
-                // Share via... button
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: FilledButton.tonalIcon(
-                      onPressed: () {
-                        Navigator.pop(sheetContext);
-                        Share.share(l10n.settingsShareMessage);
-                      },
-                      icon: const Icon(Icons.share),
-                      label: Text(l10n.settingsShareVia),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // WhatsApp button
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: FilledButton.icon(
-                      onPressed: () => _openWhatsApp(context),
-                      icon: const Icon(SimpleIcons.whatsapp),
-                      label: Text(l10n.settingsShareWhatsApp),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openWhatsApp(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final encoded = Uri.encodeComponent(l10n.settingsShareMessage);
-    final uri = Uri.parse('whatsapp://send?text=$encoded');
-
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.settingsWhatsAppNotInstalled)),
-        );
-      }
-    }
-  }
-
   void _showPrivacyPolicy(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     showModalBottomSheet(
@@ -1910,12 +1231,6 @@ class SettingsScreen extends ConsumerWidget {
               ),
               _policyItem(
                 context,
-                Icons.code,
-                l10n.settingsPrivacyOpenSource,
-                l10n.settingsPrivacyOpenSourceDesc,
-              ),
-              _policyItem(
-                context,
                 Icons.block,
                 l10n.settingsPrivacyNoAds,
                 l10n.settingsPrivacyNoAdsDesc,
@@ -1938,124 +1253,6 @@ class SettingsScreen extends ConsumerWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              _buildPolicyLink(
-                context,
-                icon: SimpleIcons.github,
-                label: l10n.settingsViewSourceCode,
-                url: 'https://github.com/anonfaded/Fadocx',
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPolicyLink(BuildContext context,
-      {required IconData icon, required String label, required String url}) {
-    final theme = Theme.of(context);
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            backgroundColor: Colors.transparent,
-            builder: (ctx) => _LinkSheet(
-              title: label,
-              value: url,
-              onOpen: () {
-                Navigator.pop(ctx);
-                _openUrl(url);
-              },
-              onCopy: () {
-                _copyToClipboard(context, url);
-                Navigator.pop(ctx);
-              },
-            ),
-          );
-        },
-        style: OutlinedButton.styleFrom(
-          foregroundColor: theme.colorScheme.primary,
-          side: BorderSide(
-              color: theme.colorScheme.primary.withValues(alpha: 0.5)),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        icon: Icon(icon, size: 20),
-        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-      ),
-    );
-  }
-
-  void _openUrl(String url) async {
-    try {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (_) {}
-  }
-
-  Widget _patreonRow(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    const goldColor = Color(0xFFD4A017);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _showPatreonSheet(context),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: goldColor.withValues(alpha: isDark ? 0.12 : 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: goldColor.withValues(alpha: isDark ? 0.3 : 0.25),
-            ),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: goldColor.withValues(alpha: isDark ? 0.2 : 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  SimpleIcons.patreon,
-                  size: 20,
-                  color: goldColor,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.supportDevelopment,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: goldColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    Text(
-                      l10n.drawerUnlockBenefits,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: goldColor.withValues(alpha: 0.7),
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right,
-                size: 20,
-                color: goldColor.withValues(alpha: 0.6),
-              ),
             ],
           ),
         ),
@@ -2066,363 +1263,13 @@ class SettingsScreen extends ConsumerWidget {
   Widget _buildFooter(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(l10n.settingsMadeWith,
-                  style: TextStyle(color: muted, fontSize: 13)),
-              const SizedBox(width: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: Image.asset(
-                  'assets/other_apps/palestine.png',
-                  width: 18,
-                  height: 18,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(l10n.settingsAt,
-                  style: TextStyle(color: muted, fontSize: 13)),
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 40,
-                height: 18,
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: Image.asset(
-                      'assets/other_apps/fadseclab.png',
-                      width: 40,
-                      height: 18,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(l10n.settingsIn,
-                  style: TextStyle(color: muted, fontSize: 13)),
-              const SizedBox(width: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: Image.asset(
-                  'assets/other_apps/pakistan.png',
-                  width: 18,
-                  height: 18,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        InkWell(
-          onTap: () {
-            showModalBottomSheet(
-              context: context,
-              backgroundColor: Colors.transparent,
-              builder: (ctx) => _LinkSheet(
-                title: 'FadSec Lab',
-                value: 'https://fadseclab.com',
-                onOpen: () {
-                  Navigator.pop(ctx);
-                  _openUrl('https://fadseclab.com');
-                },
-                onCopy: () {
-                  _copyToClipboard(context, 'https://fadseclab.com');
-                  Navigator.pop(ctx);
-                },
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Text(
-              l10n.settingsCopyright,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: muted.withValues(alpha: 0.6),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _otherAppCard(
-    BuildContext context, {
-    required String imageAsset,
-    required String name,
-    required String description,
-    required List<IconData> platformIcons,
-    required String url,
-    Color? iconBgColor,
-    String? platformNote,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: iconBgColor ??
-                  (isDark
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.black.withValues(alpha: 0.04)),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.asset(
-                imageAsset,
-                width: 48,
-                height: 48,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    ...platformIcons.map((icon) => Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: Icon(icon,
-                              size: 16,
-                              color: theme.colorScheme.onSurfaceVariant),
-                        )),
-                    if (platformNote != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 2),
-                        child: Text(
-                          platformNote,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.6),
-                            fontSize: 10,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: () {
-                    showModalBottomSheet(
-                      context: context,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => _LinkSheet(
-                        title: name,
-                        value: url,
-                        onOpen: () {
-                          Navigator.pop(ctx);
-                          _openUrl(url);
-                        },
-                        onCopy: () {
-                          _copyToClipboard(context, url);
-                          Navigator.pop(ctx);
-                        },
-                      ),
-                    );
-                  },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        l10n.settingsVisitGithub,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.open_in_new,
-                        size: 14,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showPatreonSheet(BuildContext context) {
-    const patreonUrl = 'https://patreon.com/c/fadedx';
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: brightness == Brightness.dark
-              ? const Color(0xFF1C1C1E)
-              : const Color(0xFFF2F2F7),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        ),
-        padding: EdgeInsets.only(
-          top: 6,
-          bottom: MediaQuery.of(context).padding.bottom + 6,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle
-            Container(
-              width: 36,
-              height: 5,
-              margin: const EdgeInsets.only(top: 4, bottom: 12),
-              decoration: BoxDecoration(
-                color: brightness == Brightness.dark
-                    ? Colors.white.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            // Patreon icon + title
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-              child: Column(
-                children: [
-                  Icon(SimpleIcons.patreon,
-                      size: 40, color: const Color(0xFFD4A017)),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.supportDevelopment,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Explanation
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                AppLocalizations.of(context)!.patreonDescription,
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Visit Patreon
-            _sheetAction(
-              context,
-              icon: SimpleIcons.patreon,
-              label: l10n.visitPatreon,
-              onTap: () {
-                Navigator.pop(ctx);
-                _openUrl(patreonUrl);
-              },
-            ),
-            const SizedBox(height: 8),
-            // Copy link
-            _sheetAction(
-              context,
-              icon: Icons.content_copy,
-              label: l10n.copyLink,
-              onTap: () {
-                _copyToClipboard(context, patreonUrl);
-                Navigator.pop(ctx);
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Helper for sheet action buttons (shared between sheets)
-  Widget _sheetAction(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    final brightness = Theme.of(context).brightness;
-    final bgColor =
-        brightness == Brightness.dark ? const Color(0xFF2C2C2E) : Colors.white;
-    final textColor = Theme.of(context).colorScheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: bgColor,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 20, color: textColor),
-                    const SizedBox(width: 10),
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: textColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Text(
+        l10n.settingsCopyright,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
         ),
       ),
     );
@@ -2496,19 +1343,16 @@ class _SettingsRow extends StatelessWidget {
   final String title;
   final String? value;
   final VoidCallback? onTap;
-  final bool isComingSoon;
 
   const _SettingsRow({
     required this.icon,
     required this.title,
     this.value,
     this.onTap,
-    this.isComingSoon = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
@@ -2542,7 +1386,7 @@ class _SettingsRow extends StatelessWidget {
                       title,
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
-                    if (value != null && !isComingSoon) ...[
+                    if (value != null) ...[
                       const SizedBox(height: 2),
                       Text(
                         value!,
@@ -2556,23 +1400,7 @@ class _SettingsRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (isComingSoon)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color:
-                        colorScheme.surfaceContainerHigh.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    l10n.comingSoon,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                ),
-              if (true && onTap != null && !isComingSoon)
+              if (onTap != null)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: Icon(
@@ -2724,141 +1552,6 @@ class _DangerRowState extends State<_DangerRow> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-/// Reusable bottom sheet for a link with Copy and Open actions.
-class _LinkSheet extends StatelessWidget {
-  final String title;
-  final String value;
-  final VoidCallback onCopy;
-  final VoidCallback onOpen;
-
-  const _LinkSheet({
-    required this.title,
-    required this.value,
-    required this.onCopy,
-    required this.onOpen,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final brightness = Theme.of(context).brightness;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: brightness == Brightness.dark
-            ? const Color(0xFF1C1C1E)
-            : const Color(0xFFF2F2F7),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-      ),
-      padding: EdgeInsets.only(
-        top: 6,
-        bottom: MediaQuery.of(context).padding.bottom + 6,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 5,
-            margin: const EdgeInsets.only(top: 4, bottom: 12),
-            decoration: BoxDecoration(
-              color: brightness == Brightness.dark
-                  ? Colors.white.withValues(alpha: 0.15)
-                  : Colors.black.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(3),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-            child: Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              value,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          _SheetAction(
-            icon: Icons.content_copy,
-            label: l10n.copy,
-            onTap: onCopy,
-          ),
-          const SizedBox(height: 8),
-          _SheetAction(
-            icon: Icons.open_in_browser,
-            label: l10n.settingsOpenInBrowser,
-            onTap: onOpen,
-          ),
-          const SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
-}
-
-class _SheetAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _SheetAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final bgColor =
-        brightness == Brightness.dark ? const Color(0xFF2C2C2E) : Colors.white;
-    final textColor = Theme.of(context).colorScheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: bgColor,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 20, color: textColor),
-                    const SizedBox(width: 10),
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: textColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }

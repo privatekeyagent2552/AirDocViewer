@@ -8,7 +8,7 @@ final log = Logger();
 /// When user opens a file with our app from Files app or another app,
 /// this service captures and routes to the viewer
 class FileIntentService {
-  static const _channel = MethodChannel('com.fadseclab.fadocx/file_intent');
+  static const _channel = MethodChannel('com.airdocsviewer/file_intent');
   static final _fileIntentController = StreamController<String>.broadcast();
   static bool _initialized = false;
 

@@ -1,10 +1,24 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/core/services/storage_service.dart';
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
-import 'package:fadocx/features/viewer/data/providers/repository_providers.dart';
+import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/features/viewer/data/providers/repository_providers.dart';
 
 final log = Logger();
+
+/// Content phase for the viewer surface — no format may hang in [preparing]
+/// forever without advancing to ready / fallback / error.
+enum ViewerPhase {
+  preparing,
+  rendering,
+  ready,
+  fallback,
+  error,
+}
 
 /// State class for parsed document with loading/error handling
 class ParsedDocumentState {
@@ -12,16 +26,19 @@ class ParsedDocumentState {
   final bool isLoading;
   final String? error;
   final String? parsingStatus;
+  final ViewerPhase phase;
+  final bool usingFallback;
 
   const ParsedDocumentState({
     this.document,
     this.isLoading = false,
     this.error,
     this.parsingStatus,
+    this.phase = ViewerPhase.preparing,
+    this.usingFallback = false,
   });
 
-  /// Convenience getters
-  bool get hasError => error != null;
+  bool get hasError => error != null || phase == ViewerPhase.error;
   bool get hasData => document != null;
 
   ParsedDocumentState copyWith({
@@ -29,253 +46,258 @@ class ParsedDocumentState {
     bool? isLoading,
     String? error,
     String? parsingStatus,
+    ViewerPhase? phase,
+    bool? usingFallback,
+    bool clearError = false,
   }) {
     return ParsedDocumentState(
       document: document ?? this.document,
       isLoading: isLoading ?? this.isLoading,
-      error: error,
-      parsingStatus: parsingStatus,
+      error: clearError ? null : (error ?? this.error),
+      parsingStatus: parsingStatus ?? this.parsingStatus,
+      phase: phase ?? this.phase,
+      usingFallback: usingFallback ?? this.usingFallback,
     );
   }
 }
 
-/// ViewModel for managing document parsing using modern Riverpod Notifier pattern
+/// ViewModel for managing document parsing using modern Riverpod Notifier pattern.
 class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
   String _filePath = '';
   String _fileName = '';
+  int _loadGeneration = 0;
 
   @override
   ParsedDocumentState build() {
     return const ParsedDocumentState();
   }
 
-  /// Initialize with file path and name, then load document
+  /// Initialize with file path and name, then load document.
   Future<void> initializeAndLoad(String filePath, String fileName) async {
     _filePath = filePath;
     _fileName = fileName;
     await loadDocument();
   }
 
-  /// Load and parse the document
+  /// Force structured/text fallback for visual formats (DOCX/PPTX) when
+  /// the pure-Flutter renderer fails.
+  Future<void> loadStructuredFallback() async {
+    final gen = ++_loadGeneration;
+    final extension =
+        SupportedFormats.extensionOf(_filePath) ??
+        SupportedFormats.extensionOf(_fileName) ??
+        '';
+    final spec = SupportedFormats.of(extension);
+    if (spec == null || spec.viewerKind != ViewerKind.richWeb) {
+      return;
+    }
+
+    state = state.copyWith(
+      isLoading: true,
+      clearError: true,
+      phase: ViewerPhase.preparing,
+      parsingStatus: 'Loading readable fallback…',
+    );
+
+    try {
+      final repository = ref.read(documentParsingRepositoryProvider);
+      final document = switch (extension) {
+        'doc' => await repository.parseDOC(_filePath),
+        'docx' => await repository.parseDOCXStructured(_filePath),
+        'ppt' => await repository.parsePPT(_filePath),
+        'pptx' => await repository.parsePPTXStructured(_filePath),
+        _ => throw UnsupportedError('No Office fallback for .$extension'),
+      };
+      if (gen != _loadGeneration) return;
+
+      state = ParsedDocumentState(
+        document: document,
+        isLoading: false,
+        phase: ViewerPhase.fallback,
+        usingFallback: true,
+      );
+      log.i('Fallback open: $_fileName (format: ${document.format})');
+    } catch (e, st) {
+      if (gen != _loadGeneration) return;
+      log.e('Fallback parse failed: $e', error: e, stackTrace: st);
+      state = state.copyWith(
+        isLoading: false,
+        phase: ViewerPhase.error,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Mark visual content as fully rendered (called from viewer).
+  void markReady() {
+    if (state.phase == ViewerPhase.ready || state.phase == ViewerPhase.fallback) {
+      return;
+    }
+    state = state.copyWith(phase: ViewerPhase.ready, isLoading: false);
+  }
+
+  /// Load and parse the document using the strategy from [SupportedFormats].
   Future<void> loadDocument() async {
     if (_filePath.isEmpty) {
       log.e('loadDocument called before initializeAndLoad');
       return;
     }
 
-    state = state.copyWith(isLoading: true, error: null);
+    final gen = ++_loadGeneration;
+    state = state.copyWith(
+      isLoading: true,
+      clearError: true,
+      phase: ViewerPhase.preparing,
+      usingFallback: false,
+    );
 
     try {
-      final repository = ref.read(documentParsingRepositoryProvider);
-      // Use filePath for extension detection (more reliable than display name)
-      final extension =
-          _extractExtension(_filePath) ?? _extractExtension(_fileName) ?? '';
-
-      state = state.copyWith(parsingStatus: 'Loading $extension...');
-
-      ParsedDocumentEntity document;
-
-      // Route to appropriate parser based on file extension
-      // Must match all formats supported in DocumentParsingRepositoryImpl
-      switch (extension) {
-        // Spreadsheet formats
-        case 'xlsx':
-        case 'xls':
-          log.d('Routing to parseXLSX for: $extension');
-          document = await repository.parseXLSX(
-            _filePath,
-            useNativeParsing: true,
-          );
-        case 'csv':
-          log.d('Routing to native CSV parser');
-          document = await repository.parseCSV(_filePath);
-        case 'ods':
-          log.d('ODS format - creating stub entity for LOKit viewer');
-          document = ParsedDocumentEntity(
-            format: extension.toUpperCase(),
-            sheets: const [],
-            sheetCount: 0,
-            parsedAt: DateTime.now(),
-            sourceFilePath: _filePath,
-          );
-
-        // Data formats
-        case 'json':
-          log.d('Routing to parseJSON');
-          document = await repository.parseJSON(_filePath);
-        case 'xml':
-          log.d('Routing to parseXML');
-          document = await repository.parseXML(_filePath);
-
-        // Document formats
-        case 'docx':
-          log.d('Routing to parseDOCX');
-          document = await repository.parseDOCX(_filePath);
-        case 'doc':
-          log.d('Routing to parseDOC');
-          document = await repository.parseDOC(_filePath);
-        case 'txt':
-        case 'java':
-        case 'py':
-        case 'sh':
-        case 'html':
-        case 'md':
-        case 'log':
-        case 'fadrec':
-        case 'atom':
-        case 'ico':
-        case 'psd':
-          log.d('Routing to parseTXT for: $extension');
-          document = await repository.parseTXT(_filePath);
-          if (extension != 'txt') {
-            document = document.copyWith(format: extension.toUpperCase());
-          }
-        case 'rtf':
-          log.d('Routing to parseRTF');
-          document = await repository.parseRTF(_filePath);
-        case 'odt':
-          log.d('Routing to parseODT');
-          document = await repository.parseODT(_filePath);
-
-        // LOKit-rendered formats (presentations + ODS)
-        case 'ppt':
-        case 'pptx':
-        case 'odp':
-        case 'epub':
-        case 'ott':
-          log.d('Presentation/LOKit format - creating stub entity for LOKit viewer ($extension)');
-          document = ParsedDocumentEntity(
-            format: extension.toUpperCase(),
-            sheets: const [],
-            sheetCount: 0,
-            parsedAt: DateTime.now(),
-            sourceFilePath: _filePath,
-          );
-
-        case 'pdf':
-          log.d('Routing to PDF viewer');
-          final cached = await repository.getCachedParsing(_filePath);
-          if (cached != null && cached.format == 'PDF') {
-            document = cached;
-          } else {
-            document = ParsedDocumentEntity(
-              format: 'PDF',
-              sheets: const [],
-              sheetCount: 0,
-              parsedAt: DateTime.now(),
-              sourceFilePath: _filePath,
-            );
-          }
-
-        // Audio formats — playback via MediaViewer
-        case 'aac':
-        case 'mp3':
-        case 'wav':
-        case 'ogg':
-        case 'flac':
-        case 'm4a':
-        case 'wma':
-        case 'opus':
-        case 'aiff':
-        // Video formats — playback via MediaViewer
-        case 'mp4':
-        case 'avi':
-        case 'mkv':
-        case 'mov':
-        case 'wmv':
-        case 'flv':
-        case 'webm':
-        case '3gp':
-        case 'm4v':
-        case 'mpg':
-        case 'mpeg':
-        case 'fmp4':
-          log.d('Media format detected: $extension — using MediaViewer');
-          document = ParsedDocumentEntity(
-            format: extension.toUpperCase(),
-            sheets: const [],
-            sheetCount: 0,
-            parsedAt: DateTime.now(),
-            sourceFilePath: _filePath,
-          );
-
-        // Image formats — display with built-in image viewer
-        case 'png':
-        case 'jpg':
-        case 'jpeg':
-        case 'gif':
-        case 'webp':
-        case 'bmp':
-        case 'svg':
-          log.d('Image format detected: $extension — using image viewer');
-          document = ParsedDocumentEntity(
-            format: extension.toUpperCase(),
-            sheets: const [],
-            sheetCount: 0,
-            parsedAt: DateTime.now(),
-            sourceFilePath: _filePath,
-          );
-
-        default:
-          log.e(
-              'Unsupported file format received: "$extension" (path: $_filePath)');
-          throw Exception(
-              'Unsupported file format: ${extension.isEmpty ? '(no extension)' : extension}');
+      final file = File(_filePath);
+      if (!await file.exists()) {
+        throw Exception('File not found: $_filePath');
       }
 
-      state = ParsedDocumentState(
-        document: document,
-        isLoading: false,
-      );
+      final extension =
+          SupportedFormats.extensionOf(_filePath) ??
+          SupportedFormats.extensionOf(_fileName) ??
+          '';
+      final spec = SupportedFormats.of(extension);
+      if (spec == null) {
+        throw Exception(
+          'Unsupported file format: ${extension.isEmpty ? '(no extension)' : extension}',
+        );
+      }
 
-      log.i(
-          'Document loaded successfully: $_fileName (format: ${document.format})');
+      state = state.copyWith(parsingStatus: 'Loading ${spec.formatLabel}…');
 
-      // Keep external-entry flows importing into managed storage, but do not
-      // recopy files that are already the app-managed copy.
-      try {
-        final alreadyManaged = await StorageService.isManagedPath(_filePath);
-        if (alreadyManaged) {
-          log.d(
-            'Skipping auto-cache for already-managed file: $_filePath',
+      final ParsedDocumentEntity document;
+      switch (spec.openStrategy) {
+        case OpenStrategy.direct:
+          document = _directStub(spec);
+          if (gen != _loadGeneration) return;
+          state = ParsedDocumentState(
+            document: document,
+            isLoading: false,
+            phase: ViewerPhase.rendering,
           );
-        } else {
-          final cachedFile =
-              await StorageService.cacheDocument(_filePath, _fileName);
-          log.i('Document cached: ${cachedFile.path}');
-        }
-      } catch (e) {
-        log.w('Failed to cache document: $e');
+          log.i('Direct open: $_fileName (format: ${document.format})');
+          unawaited(_cacheInBackground());
+          return;
+
+        case OpenStrategy.visualWithFallback:
+          // Show visual stub immediately; viewer may later request structured fallback.
+          document = _directStub(spec);
+          if (gen != _loadGeneration) return;
+          state = ParsedDocumentState(
+            document: document,
+            isLoading: false,
+            phase: ViewerPhase.rendering,
+          );
+          log.i('Visual open: $_fileName (format: ${document.format})');
+          unawaited(_cacheInBackground());
+          return;
+
+        case OpenStrategy.parserFirst:
+          document = await _parseBySpec(spec);
+          if (gen != _loadGeneration) return;
+          state = ParsedDocumentState(
+            document: document,
+            isLoading: false,
+            phase: ViewerPhase.ready,
+          );
+          log.i(
+            'Parsed open: $_fileName (format: ${document.format}, '
+            'blocks=${document.documentBlocks.length}, '
+            'sheets=${document.sheets.length})',
+          );
+          unawaited(_cacheInBackground());
+          return;
       }
     } catch (e, st) {
+      if (gen != _loadGeneration) return;
       log.e('Error loading document: $e', error: e, stackTrace: st);
       state = state.copyWith(
         isLoading: false,
+        phase: ViewerPhase.error,
         error: e.toString(),
       );
     }
   }
 
-  /// Extract file extension from a path or filename, returns null if none found
-  String? _extractExtension(String path) {
-    if (path.isEmpty) return null;
-    final name = path.split('/').last;
-    final dotIdx = name.lastIndexOf('.');
-    if (dotIdx == -1 || dotIdx == name.length - 1) return null;
-    final ext = name.substring(dotIdx + 1).toLowerCase();
-    return ext.isEmpty ? null : ext;
+  ParsedDocumentEntity _directStub(FormatSpec spec) {
+    return ParsedDocumentEntity(
+      format: spec.formatLabel,
+      sheets: const [],
+      sheetCount: 0,
+      parsedAt: DateTime.now(),
+      sourceFilePath: _filePath,
+      fidelityLevel: spec.viewerKind == ViewerKind.richWeb
+          ? DocumentFidelityLevel.rich
+          : DocumentFidelityLevel.plainText,
+    );
+  }
+
+  Future<ParsedDocumentEntity> _parseBySpec(FormatSpec spec) async {
+    final repository = ref.read(documentParsingRepositoryProvider);
+    final ext = spec.extension;
+
+    switch (spec.viewerKind) {
+      case ViewerKind.spreadsheet:
+        if (ext == 'csv') return repository.parseCSV(_filePath);
+        if (ext == 'ods') return repository.parseODS(_filePath);
+        return repository.parseXLSX(_filePath, useNativeParsing: true);
+
+      case ViewerKind.structured:
+        return switch (ext) {
+          'docx' => repository.parseDOCXStructured(_filePath),
+          'doc' => repository.parseDOC(_filePath),
+          'rtf' => repository.parseRTF(_filePath),
+          'odt' => repository.parseODT(_filePath),
+          'ott' => repository.parseOTT(_filePath),
+          'odp' => repository.parseODP(_filePath),
+          'pptx' => repository.parsePPTXStructured(_filePath),
+          'ppt' => repository.parsePPT(_filePath),
+          'epub' => repository.parseEPUB(_filePath),
+          _ => throw Exception('No structured parser for .$ext'),
+        };
+
+      case ViewerKind.text:
+        if (ext == 'json') return repository.parseJSON(_filePath);
+        if (ext == 'xml' || ext == 'atom') {
+          final doc = await repository.parseXML(_filePath);
+          return ext == 'atom' ? doc.copyWith(format: 'ATOM') : doc;
+        }
+        if (ext == 'fadrec') return repository.parseFadrec(_filePath);
+        final doc = await repository.parseTXT(_filePath);
+        return ext == 'txt' ? doc : doc.copyWith(format: spec.formatLabel);
+
+      case ViewerKind.pdf:
+      case ViewerKind.richWeb:
+      case ViewerKind.image:
+      case ViewerKind.media:
+        // These use direct / visual strategies; parser path is fallback only.
+        return _directStub(spec);
+    }
+  }
+
+  Future<void> _cacheInBackground() async {
+    try {
+      final alreadyManaged = await StorageService.isManagedPath(_filePath);
+      if (alreadyManaged) {
+        log.d('Skipping auto-cache for already-managed file: $_filePath');
+        return;
+      }
+      final cachedFile =
+          await StorageService.cacheDocument(_filePath, _fileName);
+      log.i('Document cached: ${cachedFile.path}');
+    } catch (e) {
+      log.w('Failed to cache document: $e');
+    }
   }
 }
 
-/// Provider for document viewing - autoDispose so state resets on each viewer screen
-/// Usage:
-/// ```dart
-/// final notifier = ref.read(documentViewerProvider.notifier);
-/// await notifier.initializeAndLoad(filePath, fileName);
-/// final docState = ref.watch(documentViewerProvider);
-/// ```
+/// Provider for document viewing — autoDispose so state resets per viewer screen.
 final documentViewerProvider =
     NotifierProvider.autoDispose<DocumentViewerNotifier, ParsedDocumentState>(
-        () {
-  return DocumentViewerNotifier();
-});
+  DocumentViewerNotifier.new,
+);

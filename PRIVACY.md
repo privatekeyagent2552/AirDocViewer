@@ -1,29 +1,34 @@
-# Privacy Policy
+# Privacy Policy — Air Docs Viewer
 
-**Last updated: April 30, 2026**
+**Last updated:** 2026
 
-Fadocx is built with transparency as a core principle. Your documents are your business — not ours.
+## Overview
 
-## 100% Offline
+Air Docs Viewer is an offline document viewer developed by **Crypto Sys Development**. Your privacy is important to us.
 
-All processing happens on your device. No internet connection is required to use Fadocx.
+## Data collection
 
-## Local Storage Only
+Air Docs Viewer does **not** collect, transmit, or sell your personal data. We do not use analytics or advertising SDKs.
 
-Your documents stay on your device. Nothing is uploaded to any server. No cloud, no sync, no data leaving your device.
+## Document storage
 
-## On-Device AI
+Files you import are stored in **private app storage** on your device (`Android/data/com.airdocsviewer/`). Other apps cannot access these files without your permission.
 
-The OCR engine (OpenCV + Tesseract) runs entirely locally. No data is sent to external services for processing.
+## Network access
 
-## Open Source
+The app is **strictly offline** for document viewing, browsing, and settings. The release build does not declare the `INTERNET` permission. Document hyperlinks are copied to the clipboard instead of opening a browser.
 
-The source code is public and can be audited by anyone on GitHub.
+## Permissions
 
-## No Tracking
-
-No advertisements. No tracking. No analytics. No crash logs. Zero telemetry. Fadocx does not collect, store, or transmit any personal data.
+| Permission | Purpose |
+|------------|---------|
+| Storage / media | Import and manage documents |
+| Internet | Reserved; not required for viewing |
 
 ## Contact
 
-For questions about this privacy policy, open an issue on GitHub or reach out via the app's support channels.
+Developed by **Crypto Sys Development**.
+
+## Changes
+
+We may update this policy. Continued use of the app after changes constitutes acceptance.

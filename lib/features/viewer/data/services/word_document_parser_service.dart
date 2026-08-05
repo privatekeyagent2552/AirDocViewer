@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/office_glyph_sanitizer.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 
 class StructuredDocumentParseResult {
   final String plainTextContent;
@@ -18,6 +19,16 @@ class StructuredDocumentParseResult {
     this.parseWarnings = const [],
     this.fidelityLevel = DocumentFidelityLevel.partial,
   });
+
+  /// Sanitize Symbol/Wingdings glyphs after parsing any Office format.
+  StructuredDocumentParseResult sanitized() {
+    return StructuredDocumentParseResult(
+      plainTextContent: OfficeGlyphSanitizer.sanitize(plainTextContent),
+      documentBlocks: WordDocumentParserService.sanitizeBlocks(documentBlocks),
+      parseWarnings: parseWarnings,
+      fidelityLevel: fidelityLevel,
+    );
+  }
 }
 
 class WordDocumentParserService {
@@ -34,16 +45,47 @@ class WordDocumentParserService {
 
     final content = utf8.decode(contentFile.content as List<int>);
     final document = XmlDocument.parse(content);
+    final styles = _odtStyleMap(document);
     final blocks = <DocumentBlock>[];
+    final warnings = <String>[];
 
-    for (final paragraph in document.descendants.whereType<XmlElement>()) {
-      if (paragraph.name.local != 'p') continue;
-      final text = paragraph.innerText.replaceAll('\r', '').trimRight();
-      if (text.isEmpty) continue;
-      blocks.add(
-        DocumentParagraphBlock(
-          inlines: [DocumentInline(type: DocumentInlineType.text, text: text)],
-        ),
+    // Prefer direct children of office:text when present.
+    final officeText = document.descendants
+        .whereType<XmlElement>()
+        .where((e) {
+          final parent = e.parent;
+          return e.name.local == 'text' &&
+              parent is XmlElement &&
+              parent.name.local == 'body';
+        })
+        .firstOrNull;
+    final Iterable<XmlElement> walkRoots =
+        officeText?.children.whereType<XmlElement>() ??
+            document.descendants.whereType<XmlElement>().where((e) {
+              final parent = e.parent;
+              final underText = parent is XmlElement && parent.name.local == 'text';
+              return underText &&
+                  (e.name.local == 'p' ||
+                      e.name.local == 'list' ||
+                      e.name.local == 'table' ||
+                      e.name.local == 'h');
+            });
+
+    for (final child in walkRoots) {
+      blocks.addAll(_odtParseNode(child, styles: styles, listLevel: 0));
+    }
+
+    // Fallback: flat paragraphs if structured walk found nothing.
+    if (blocks.isEmpty) {
+      for (final paragraph in document.descendants.whereType<XmlElement>()) {
+        if (paragraph.name.local != 'p' && paragraph.name.local != 'h') {
+          continue;
+        }
+        final parsed = _odtParseParagraph(paragraph, styles: styles);
+        if (parsed != null) blocks.add(parsed);
+      }
+      warnings.add(
+        'ODT structure was partially flattened; some nesting may be missing.',
       );
     }
 
@@ -51,13 +93,229 @@ class WordDocumentParserService {
     return StructuredDocumentParseResult(
       plainTextContent: plainText,
       documentBlocks: blocks,
-      parseWarnings: const [
-        'ODT currently renders paragraph text without full style/layout fidelity.'
-      ],
+      parseWarnings: warnings.isEmpty
+          ? const [
+              'ODT shows styles, lists, and tables without full page layout.',
+            ]
+          : warnings,
       fidelityLevel: blocks.isEmpty
           ? DocumentFidelityLevel.plainText
           : DocumentFidelityLevel.partial,
+    ).sanitized();
+  }
+
+  static Map<String, DocumentTextStyleData> _odtStyleMap(XmlDocument document) {
+    final map = <String, DocumentTextStyleData>{};
+    for (final style in document.descendants.whereType<XmlElement>()) {
+      if (style.name.local != 'style') continue;
+      final name = style.getAttribute('style:name') ??
+          style.getAttribute('name') ??
+          '';
+      if (name.isEmpty) continue;
+      final textProps = style.childElements
+          .where((e) => e.name.local == 'text-properties')
+          .firstOrNull;
+      if (textProps == null) continue;
+      final weight = (textProps.getAttribute('fo:font-weight') ??
+              textProps.getAttribute('font-weight') ??
+              '')
+          .toLowerCase();
+      final fontStyle = (textProps.getAttribute('fo:font-style') ??
+              textProps.getAttribute('font-style') ??
+              '')
+          .toLowerCase();
+      final underline = (textProps.getAttribute('style:text-underline-style') ??
+              '')
+          .toLowerCase();
+      map[name] = DocumentTextStyleData(
+        bold: weight == 'bold' || weight == '700',
+        italic: fontStyle == 'italic' || fontStyle == 'oblique',
+        underline: underline.isNotEmpty && underline != 'none',
+      );
+    }
+    return map;
+  }
+
+  static List<DocumentBlock> _odtParseNode(
+    XmlElement element, {
+    required Map<String, DocumentTextStyleData> styles,
+    required int listLevel,
+    String? listKind,
+  }) {
+    switch (element.name.local) {
+      case 'p':
+      case 'h':
+        final paragraph = _odtParseParagraph(
+          element,
+          styles: styles,
+          listLevel: listKind == null ? null : listLevel,
+          listKind: listKind,
+        );
+        return paragraph == null ? const [] : [paragraph];
+      case 'list':
+        final kind = (element.getAttribute('text:style-name') ?? '')
+                .toLowerCase()
+                .contains('number')
+            ? 'decimal'
+            : 'bullet';
+        final out = <DocumentBlock>[];
+        for (final item in element.childElements
+            .where((e) => e.name.local == 'list-item')) {
+          for (final child in item.childElements) {
+            out.addAll(
+              _odtParseNode(
+                child,
+                styles: styles,
+                listLevel: listLevel,
+                listKind: kind,
+              ),
+            );
+          }
+        }
+        return out;
+      case 'table':
+        return [_odtParseTable(element, styles: styles)];
+      default:
+        final out = <DocumentBlock>[];
+        for (final child in element.childElements) {
+          out.addAll(
+            _odtParseNode(
+              child,
+              styles: styles,
+              listLevel: listLevel,
+              listKind: listKind,
+            ),
+          );
+        }
+        return out;
+    }
+  }
+
+  static DocumentParagraphBlock? _odtParseParagraph(
+    XmlElement paragraph, {
+    required Map<String, DocumentTextStyleData> styles,
+    int? listLevel,
+    String? listKind,
+  }) {
+    final inlines = <DocumentInline>[];
+    void walk(XmlNode node, DocumentTextStyleData inherited) {
+      if (node is XmlText) {
+        final text = node.value.replaceAll('\r', '');
+        if (text.isEmpty) return;
+        inlines.add(
+          DocumentInline(
+            type: DocumentInlineType.text,
+            text: text,
+            style: inherited,
+          ),
+        );
+        return;
+      }
+      if (node is! XmlElement) return;
+      var style = inherited;
+      final styleName = node.getAttribute('text:style-name') ??
+          node.getAttribute('style-name');
+      if (styleName != null && styles.containsKey(styleName)) {
+        final s = styles[styleName]!;
+        style = DocumentTextStyleData(
+          bold: inherited.bold || s.bold,
+          italic: inherited.italic || s.italic,
+          underline: inherited.underline || s.underline,
+          strike: inherited.strike || s.strike,
+          fontFamily: s.fontFamily ?? inherited.fontFamily,
+          fontSize: s.fontSize ?? inherited.fontSize,
+          colorHex: s.colorHex ?? inherited.colorHex,
+          backgroundHex: s.backgroundHex ?? inherited.backgroundHex,
+        );
+      }
+      if (node.name.local == 'a') {
+        final href = node.getAttribute('xlink:href') ??
+            node.getAttribute('href') ??
+            '';
+        final text = node.innerText;
+        if (text.isNotEmpty) {
+          inlines.add(
+            DocumentInline(
+              type: DocumentInlineType.hyperlink,
+              text: text,
+              href: href.isEmpty ? null : href,
+              style: style,
+            ),
+          );
+        }
+        return;
+      }
+      if (node.name.local == 'line-break' || node.name.local == 's') {
+        inlines.add(
+          DocumentInline(
+            type: node.name.local == 'line-break'
+                ? DocumentInlineType.lineBreak
+                : DocumentInlineType.text,
+            text: node.name.local == 's' ? ' ' : '',
+            style: style,
+          ),
+        );
+        return;
+      }
+      for (final child in node.children) {
+        walk(child, style);
+      }
+    }
+
+    final styleName = paragraph.getAttribute('text:style-name');
+    final base = styleName != null && styles.containsKey(styleName)
+        ? styles[styleName]!
+        : const DocumentTextStyleData();
+    for (final child in paragraph.children) {
+      walk(child, base);
+    }
+    if (inlines.isEmpty) {
+      final text = paragraph.innerText.replaceAll('\r', '').trimRight();
+      if (text.isEmpty) return null;
+      inlines.add(DocumentInline(type: DocumentInlineType.text, text: text));
+    }
+    final joined = inlines.map((i) => i.plainText).join().trimRight();
+    if (joined.isEmpty) return null;
+    return DocumentParagraphBlock(
+      inlines: inlines,
+      listLevel: listLevel,
+      listKind: listKind,
     );
+  }
+
+  static DocumentTableBlock _odtParseTable(
+    XmlElement table, {
+    required Map<String, DocumentTextStyleData> styles,
+  }) {
+    final rows = <DocumentTableRow>[];
+    for (final row in table.descendants
+        .whereType<XmlElement>()
+        .where((e) => e.name.local == 'table-row')) {
+      // Skip rows that belong to nested tables.
+      final owningTable = row.ancestors
+          .whereType<XmlElement>()
+          .where((e) => e.name.local == 'table')
+          .firstOrNull;
+      if (owningTable != table) continue;
+
+      final cells = <DocumentTableCell>[];
+      for (final cell in row.childElements.where(
+        (e) =>
+            e.name.local == 'table-cell' || e.name.local == 'covered-table-cell',
+      )) {
+        final cellBlocks = <DocumentBlock>[];
+        for (final child in cell.childElements) {
+          cellBlocks.addAll(
+            _odtParseNode(child, styles: styles, listLevel: 0),
+          );
+        }
+        cells.add(DocumentTableCell(blocks: cellBlocks));
+      }
+      if (cells.isNotEmpty) {
+        rows.add(DocumentTableRow(cells: cells));
+      }
+    }
+    return DocumentTableBlock(rows: rows);
   }
 
   static Future<StructuredDocumentParseResult> parseDocx(
@@ -118,7 +376,7 @@ class WordDocumentParserService {
       fidelityLevel: warnings.isEmpty
           ? DocumentFidelityLevel.rich
           : DocumentFidelityLevel.partial,
-    );
+    ).sanitized();
   }
 
   static Future<StructuredDocumentParseResult> parseRtf(
@@ -129,8 +387,435 @@ class WordDocumentParserService {
     return parser.parse();
   }
 
+  /// Extract readable structured content from an EPUB (zip of XHTML documents).
+  static Future<StructuredDocumentParseResult> parseEpub(
+    String filePath,
+  ) async {
+    final bytes = await File(filePath).readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+
+    final htmlFiles = archive.files
+        .where((f) =>
+            f.isFile &&
+            (f.name.toLowerCase().endsWith('.xhtml') ||
+                f.name.toLowerCase().endsWith('.html') ||
+                f.name.toLowerCase().endsWith('.htm')))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    final blocks = <DocumentBlock>[];
+    for (final file in htmlFiles) {
+      String raw;
+      try {
+        raw = utf8.decode(file.content as List<int>, allowMalformed: true);
+      } catch (_) {
+        continue;
+      }
+      blocks.addAll(_htmlToBlocks(raw));
+      if (blocks.isNotEmpty) {
+        blocks.add(const DocumentSpacerBlock(height: 18, isPageBreak: true));
+      }
+    }
+
+    // Drop trailing page break.
+    if (blocks.isNotEmpty &&
+        blocks.last is DocumentSpacerBlock &&
+        (blocks.last as DocumentSpacerBlock).isPageBreak) {
+      blocks.removeLast();
+    }
+
+    final plainText = _flattenBlocks(blocks);
+    return StructuredDocumentParseResult(
+      plainTextContent: plainText,
+      documentBlocks: blocks,
+      parseWarnings: const [
+        'EPUB shows styled text, lists, links, and tables without original page layout or images.',
+      ],
+      fidelityLevel: blocks.isEmpty
+          ? DocumentFidelityLevel.plainText
+          : DocumentFidelityLevel.partial,
+    ).sanitized();
+  }
+
+  /// Convert HTML/XHTML into structured blocks (bold/italic/lists/links/tables).
+  static List<DocumentBlock> _htmlToBlocks(String html) {
+    var s = html;
+    s = s.replaceAll(
+        RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), ' ');
+    s = s.replaceAll(
+        RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), ' ');
+    s = s.replaceAll(RegExp(r'<head[\s\S]*?</head>', caseSensitive: false), ' ');
+
+    // Prefer XML parse when well-formed enough.
+    try {
+      final wrapped = s.contains('<html') || s.contains('<HTML')
+          ? s
+          : '<div>$s</div>';
+      final sanitized = wrapped
+          .replaceAll(RegExp(r'&(?!(amp|lt|gt|quot|apos|#)\w*;)'), '&amp;');
+      final doc = XmlDocument.parse(sanitized);
+      final body = doc.descendants
+              .whereType<XmlElement>()
+              .where((e) => e.name.local.toLowerCase() == 'body')
+              .firstOrNull ??
+          doc.rootElement;
+      return _htmlElementToBlocks(body, listLevel: 0);
+    } catch (_) {
+      // Regex fallback to plain lines.
+      return _htmlToLines(s)
+          .map(
+            (line) => DocumentParagraphBlock(
+              inlines: [
+                DocumentInline(type: DocumentInlineType.text, text: line),
+              ],
+            ),
+          )
+          .toList();
+    }
+  }
+
+  static List<DocumentBlock> _htmlElementToBlocks(
+    XmlElement element, {
+    required int listLevel,
+    String? listKind,
+  }) {
+    final out = <DocumentBlock>[];
+    final tag = element.name.local.toLowerCase();
+
+    if (tag == 'ul' || tag == 'ol') {
+      final kind = tag == 'ol' ? 'decimal' : 'bullet';
+      for (final li in element.childElements
+          .where((e) => e.name.local.toLowerCase() == 'li')) {
+        out.addAll(
+          _htmlElementToBlocks(li, listLevel: listLevel, listKind: kind),
+        );
+      }
+      return out;
+    }
+
+    if (tag == 'li') {
+      final paragraph = _htmlInlineParagraph(
+        element,
+        listLevel: listLevel,
+        listKind: listKind ?? 'bullet',
+      );
+      if (paragraph != null) out.add(paragraph);
+      for (final child in element.childElements) {
+        final childTag = child.name.local.toLowerCase();
+        if (childTag == 'ul' || childTag == 'ol' || childTag == 'table') {
+          out.addAll(
+            _htmlElementToBlocks(
+              child,
+              listLevel: listLevel + 1,
+              listKind: childTag == 'ol' ? 'decimal' : listKind,
+            ),
+          );
+        }
+      }
+      return out;
+    }
+
+    if (tag == 'table') {
+      out.add(_htmlParseTable(element));
+      return out;
+    }
+
+    if (tag == 'p' ||
+        tag == 'h1' ||
+        tag == 'h2' ||
+        tag == 'h3' ||
+        tag == 'h4' ||
+        tag == 'h5' ||
+        tag == 'h6' ||
+        tag == 'blockquote' ||
+        tag == 'div' ||
+        tag == 'section' ||
+        tag == 'article') {
+      // Treat heading/paragraph-like as a paragraph, then recurse block children.
+      final isHeading = tag.startsWith('h');
+      final paragraph = _htmlInlineParagraph(
+        element,
+        listLevel: listKind == null ? null : listLevel,
+        listKind: listKind,
+        forceBold: isHeading,
+      );
+      if (paragraph != null) out.add(paragraph);
+      for (final child in element.childElements) {
+        final childTag = child.name.local.toLowerCase();
+        if ({'ul', 'ol', 'table', 'p', 'div', 'section', 'blockquote'}
+            .contains(childTag)) {
+          out.addAll(
+            _htmlElementToBlocks(
+              child,
+              listLevel: listLevel,
+              listKind: listKind,
+            ),
+          );
+        }
+      }
+      return out;
+    }
+
+    for (final child in element.childElements) {
+      out.addAll(
+        _htmlElementToBlocks(
+          child,
+          listLevel: listLevel,
+          listKind: listKind,
+        ),
+      );
+    }
+    return out;
+  }
+
+  static DocumentParagraphBlock? _htmlInlineParagraph(
+    XmlElement element, {
+    int? listLevel,
+    String? listKind,
+    bool forceBold = false,
+  }) {
+    final inlines = <DocumentInline>[];
+
+    void walk(XmlNode node, DocumentTextStyleData style) {
+      if (node is XmlText) {
+        final text = _decodeHtmlEntities(node.value)
+            .replaceAll(RegExp(r'[ \t\u00A0]+'), ' ');
+        if (text.isEmpty) return;
+        // Skip whitespace-only if we already have content ending with space? keep simple.
+        inlines.add(
+          DocumentInline(
+            type: DocumentInlineType.text,
+            text: text,
+            style: style,
+          ),
+        );
+        return;
+      }
+      if (node is! XmlElement) return;
+      final tag = node.name.local.toLowerCase();
+      if (tag == 'br') {
+        inlines.add(
+          const DocumentInline(type: DocumentInlineType.lineBreak),
+        );
+        return;
+      }
+      if (tag == 'ul' || tag == 'ol' || tag == 'table') {
+        return; // handled by parent block walk
+      }
+      var next = style;
+      if (tag == 'b' || tag == 'strong') {
+        next = DocumentTextStyleData(
+          bold: true,
+          italic: style.italic,
+          underline: style.underline,
+          strike: style.strike,
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          colorHex: style.colorHex,
+          backgroundHex: style.backgroundHex,
+        );
+      } else if (tag == 'i' || tag == 'em') {
+        next = DocumentTextStyleData(
+          bold: style.bold,
+          italic: true,
+          underline: style.underline,
+          strike: style.strike,
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          colorHex: style.colorHex,
+          backgroundHex: style.backgroundHex,
+        );
+      } else if (tag == 'u') {
+        next = DocumentTextStyleData(
+          bold: style.bold,
+          italic: style.italic,
+          underline: true,
+          strike: style.strike,
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          colorHex: style.colorHex,
+          backgroundHex: style.backgroundHex,
+        );
+      } else if (tag == 's' || tag == 'strike' || tag == 'del') {
+        next = DocumentTextStyleData(
+          bold: style.bold,
+          italic: style.italic,
+          underline: style.underline,
+          strike: true,
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          colorHex: style.colorHex,
+          backgroundHex: style.backgroundHex,
+        );
+      }
+      if (tag == 'a') {
+        final href = node.getAttribute('href') ?? '';
+        final text = _decodeHtmlEntities(node.innerText).trim();
+        if (text.isNotEmpty) {
+          inlines.add(
+            DocumentInline(
+              type: DocumentInlineType.hyperlink,
+              text: text,
+              href: href.isEmpty ? null : href,
+              style: DocumentTextStyleData(
+                bold: next.bold,
+                italic: next.italic,
+                underline: true,
+                strike: next.strike,
+                colorHex: next.colorHex ?? '1565C0',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      for (final child in node.children) {
+        walk(child, next);
+      }
+    }
+
+    final base = DocumentTextStyleData(bold: forceBold);
+    for (final child in element.children) {
+      if (child is XmlElement) {
+        final t = child.name.local.toLowerCase();
+        if (t == 'ul' || t == 'ol' || t == 'table') continue;
+      }
+      walk(child, base);
+    }
+
+    final text = inlines.map((i) => i.plainText).join().trim();
+    if (text.isEmpty) return null;
+    return DocumentParagraphBlock(
+      inlines: inlines,
+      listLevel: listLevel,
+      listKind: listKind,
+    );
+  }
+
+  static DocumentTableBlock _htmlParseTable(XmlElement table) {
+    final rows = <DocumentTableRow>[];
+    for (final row in table.descendants.whereType<XmlElement>().where(
+          (e) => e.name.local.toLowerCase() == 'tr',
+        )) {
+      final cells = <DocumentTableCell>[];
+      for (final cell in row.childElements.where((e) {
+        final t = e.name.local.toLowerCase();
+        return t == 'td' || t == 'th';
+      })) {
+        final paragraph = _htmlInlineParagraph(
+          cell,
+          forceBold: cell.name.local.toLowerCase() == 'th',
+        );
+        cells.add(
+          DocumentTableCell(
+            blocks: paragraph == null ? const [] : [paragraph],
+          ),
+        );
+      }
+      if (cells.isNotEmpty) {
+        rows.add(DocumentTableRow(cells: cells));
+      }
+    }
+    return DocumentTableBlock(rows: rows);
+  }
+
+  /// Convert an HTML/XHTML fragment into a list of trimmed, non-empty text
+  /// lines by inserting breaks for block-level tags and stripping all markup.
+  static List<String> _htmlToLines(String html) {
+    var s = html;
+    s = s.replaceAll(
+        RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), ' ');
+    s = s.replaceAll(
+        RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), ' ');
+    s = s.replaceAll(RegExp(r'<head[\s\S]*?</head>', caseSensitive: false), ' ');
+    // Force line breaks around common block-level boundaries.
+    s = s.replaceAll(
+        RegExp(r'<\s*(br|/p|/div|/h[1-6]|/li|/tr|/blockquote)[^>]*>',
+            caseSensitive: false),
+        '\n');
+    s = s.replaceAll(RegExp(r'<[^>]+>'), '');
+    s = _decodeHtmlEntities(s);
+
+    return s
+        .split('\n')
+        .map((line) => line.replaceAll(RegExp(r'[ \t\u00A0]+'), ' ').trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+  }
+
+  static String _decodeHtmlEntities(String input) {
+    return input
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAllMapped(
+          RegExp(r'&#(\d+);'),
+          (m) =>
+              String.fromCharCode(int.tryParse(m.group(1) ?? '') ?? 0x20),
+        );
+  }
+
   static String flattenBlocks(List<DocumentBlock> blocks) =>
       _flattenBlocks(blocks);
+
+  static List<DocumentBlock> sanitizeBlocks(List<DocumentBlock> blocks) {
+    return blocks.map((block) {
+      if (block is DocumentParagraphBlock) {
+        return DocumentParagraphBlock(
+          inlines: block.inlines
+              .map(
+                (inline) => DocumentInline(
+                  type: inline.type,
+                  text: OfficeGlyphSanitizer.sanitize(inline.text),
+                  href: inline.href,
+                  style: OfficeGlyphSanitizer.isSymbolFont(inline.style.fontFamily)
+                      ? DocumentTextStyleData(
+                          bold: inline.style.bold,
+                          italic: inline.style.italic,
+                          underline: inline.style.underline,
+                          strike: inline.style.strike,
+                          fontSize: inline.style.fontSize,
+                          colorHex: inline.style.colorHex,
+                          backgroundHex: inline.style.backgroundHex,
+                        )
+                      : inline.style,
+                ),
+              )
+              .toList(),
+          alignment: block.alignment,
+          spacingBefore: block.spacingBefore,
+          spacingAfter: block.spacingAfter,
+          firstLineIndent: block.firstLineIndent,
+          leftIndent: block.leftIndent,
+          rightIndent: block.rightIndent,
+          listLevel: block.listLevel,
+          listKind: block.listKind,
+        );
+      }
+      if (block is DocumentTableBlock) {
+        return DocumentTableBlock(
+          rows: block.rows
+              .map(
+                (row) => DocumentTableRow(
+                  cells: row.cells
+                      .map(
+                        (cell) => DocumentTableCell(
+                          blocks: sanitizeBlocks(cell.blocks),
+                        ),
+                      )
+                      .toList(),
+                ),
+              )
+              .toList(),
+        );
+      }
+      return block;
+    }).toList();
+  }
 
   static Map<String, String> _parseDocxRelationships(Archive archive) {
     final relsFile = archive.findFile('word/_rels/document.xml.rels');
@@ -473,6 +1158,9 @@ class _RtfParser {
   bool _inFieldInstruction = false;
   bool _inFieldResult = false;
   bool _inTableRow = false;
+  int? _currentListLevel;
+  String? _currentListKind;
+  int _leftIndentTwips = 0;
 
   _RtfParser(this.source);
 
@@ -515,7 +1203,7 @@ class _RtfParser {
       fidelityLevel: _warnings.isEmpty
           ? DocumentFidelityLevel.rich
           : DocumentFidelityLevel.partial,
-    );
+    ).sanitized();
   }
 
   _RtfState get _state => _stack.last;
@@ -684,6 +1372,36 @@ class _RtfParser {
         _flushCurrentParagraph();
         _flushTableRowIfNeeded();
         break;
+      case 'pnlvlblt':
+      case 'bullet':
+        _currentListKind = 'bullet';
+        _currentListLevel ??= 0;
+        break;
+      case 'pnlvlbody':
+      case 'pnlvlcont':
+        _currentListKind = 'decimal';
+        _currentListLevel ??= 0;
+        break;
+      case 'ilvl':
+      case 'level':
+        if (parameter != null) {
+          _currentListLevel = parameter.clamp(0, 8);
+          _currentListKind ??= 'bullet';
+        }
+        break;
+      case 'li':
+        if (parameter != null) {
+          _leftIndentTwips = parameter;
+          if (parameter >= 360 && _currentListKind == null) {
+            _currentListKind = 'bullet';
+            _currentListLevel = (parameter / 360).floor().clamp(0, 8);
+          }
+        }
+        break;
+      case 'pntext':
+        // Skip automatic list label destination text; we synthesize markers.
+        _replaceState(_state.copyWith(skipText: true));
+        break;
       default:
         if (_expectIgnorableDestination) {
           _replaceState(_state.copyWith(skipText: true));
@@ -720,13 +1438,20 @@ class _RtfParser {
     }
 
     final paragraph = DocumentParagraphBlock(
-        inlines: List<DocumentInline>.from(_currentInlines));
+      inlines: List<DocumentInline>.from(_currentInlines),
+      listLevel: _currentListKind == null ? null : (_currentListLevel ?? 0),
+      listKind: _currentListKind,
+      leftIndent: _leftIndentTwips > 0 ? _leftIndentTwips / 20.0 : null,
+    );
     if (_inTableRow) {
       _currentCellBlocks.add(paragraph);
     } else {
       _blocks.add(paragraph);
     }
     _currentInlines.clear();
+    _currentListLevel = null;
+    _currentListKind = null;
+    _leftIndentTwips = 0;
 
     if (_inField) {
       _commitHyperlinkField();

@@ -7,24 +7,32 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:fadocx/main.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/document_viewer_factory.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/text_document_viewer.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('text document resolves to a concrete viewer',
+      (WidgetTester tester) async {
+    final document = ParsedDocumentEntity(
+      format: 'TXT',
+      sheets: const [],
+      plainTextContent: 'Offline document content',
+      parsedAt: DateTime(2026),
+      sourceFilePath: '/tmp/sample.txt',
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DocumentViewerFactory.createViewer(
+            document: document,
+            filePath: document.sourceFilePath,
+          ),
+        ),
+      ),
+    );
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.byType(TextDocumentViewer), findsOneWidget);
   });
 }

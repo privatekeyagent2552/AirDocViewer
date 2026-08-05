@@ -2,8 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart' show Icons, IconData;
 import 'dart:ui' as ui;
 
-import 'package:fadocx/features/viewer/data/services/document_parser_service.dart';
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/document_parser_service.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
@@ -82,10 +82,10 @@ class ThumbnailGenerationService {
     'formula': ui.Color(0xFF56B6C2),
   };
   static const MethodChannel pdfChannel = MethodChannel(
-    'com.fadseclab.fadocx/pdf',
+    'com.airdocsviewer/pdf',
   );
   static const MethodChannel docChannel = MethodChannel(
-    'com.fadseclab.fadocx/document_parser',
+    'com.airdocsviewer/document_parser',
   );
 
   static const int _thumbnailWidth = 400;
@@ -367,7 +367,7 @@ class ThumbnailGenerationService {
   /// Safely extract video frame, catching any platform-specific errors
   static Future<Uint8List?> _extractVideoFrameSafe(String filePath) async {
     try {
-      const platform = MethodChannel('com.fadseclab.fadocx/video');
+      const platform = MethodChannel('com.airdocsviewer/video');
       final result = await platform
           .invokeMethod<Uint8List?>(
             'extractVideoFrame',

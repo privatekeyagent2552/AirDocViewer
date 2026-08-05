@@ -1,5 +1,5 @@
-import 'package:fadocx/features/settings/data/models/hive_models.dart';
-import 'package:fadocx/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/features/settings/data/models/hive_models.dart';
+import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
 
 /// Mapper to convert Hive models to Domain entities
 class SettingsMapper {

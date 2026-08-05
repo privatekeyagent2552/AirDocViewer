@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fadocx/config/routing/app_router.dart';
-import 'package:fadocx/config/theme/app_theme.dart';
-import 'package:fadocx/config/theme/theme_provider.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
+import 'package:air_docs_viewer/config/theme/app_theme.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/features/settings/data/datasources/hive_datasource.dart';
-import 'package:fadocx/features/settings/presentation/providers/locale_provider.dart';
-import 'package:fadocx/services/file_intent_service.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/settings/data/datasources/hive_datasource.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/locale_provider.dart';
+import 'package:air_docs_viewer/services/file_intent_service.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 
@@ -18,66 +17,42 @@ final log = Logger();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive FIRST - pre-opens boxes
-  await HiveDatasource.initialize();
-
-  // Load theme from Hive to set correct system UI overlay style
-  String savedTheme = 'dark'; // Default fallback
-  String savedLanguage = 'en'; // Default fallback
+  String savedLanguage = 'en';
   bool onboardingSeen = true;
   bool reShowOnboarding = false;
+
   try {
-    final settings = await HiveDatasource().getSettings();
-    if (settings?.theme != null) {
-      savedTheme = settings!.theme;
-      log.i('📱 Theme loaded from Hive: $savedTheme');
-    }
+    final settings = await HiveDatasource.initialize();
     if (settings?.language != null) {
       savedLanguage = settings!.language;
-      log.i('🌐 Language loaded from Hive: $savedLanguage');
+      log.i('Language loaded from Hive: $savedLanguage');
     }
     onboardingSeen = settings?.hasDismissedWelcome ?? false;
     reShowOnboarding = settings?.showOnboardingNextLaunch ?? false;
   } catch (e) {
-    log.w('⚠️ Could not load theme from Hive, using default: $e');
+    log.w('Could not initialize Hive, using defaults: $e');
   }
 
-  // Show onboarding on first launch or if user toggled re-show
   if (!onboardingSeen || reShowOnboarding) {
     setInitialRoute(RouteNames.onboarding);
     log.i(
-        '🚀 Showing onboarding (firstLaunch: ${!onboardingSeen}, reShow: $reShowOnboarding)');
+        'Showing onboarding (firstLaunch: ${!onboardingSeen}, reShow: $reShowOnboarding)');
   }
 
-  // Set system UI overlay style to match saved theme
-  // IMPORTANT: This sets the INITIAL state. FloatingDockScaffold will update it dynamically.
-  final isDarkTheme = savedTheme.toLowerCase() == 'dark';
+  // Light-only app: system chrome matches light theme.
   SystemChrome.setSystemUIOverlayStyle(
-    SystemUiOverlayStyle(
+    const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: isDarkTheme ? Brightness.light : Brightness.dark,
-      statusBarBrightness:
-          isDarkTheme ? Brightness.dark : Brightness.light, // For iOS
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
       systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarIconBrightness:
-          isDarkTheme ? Brightness.light : Brightness.dark,
+      systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
-  log.d('✅ System UI overlay style set for $savedTheme theme');
-
-  // Clear old thumbnail cache to regenerate with new system
-  try {
-    await HiveDatasource().clearThumbnailCache();
-    log.i(
-        '✅ Thumbnail cache cleared on startup - will regenerate with new system');
-  } catch (e) {
-    log.e('Error clearing thumbnail cache on startup', error: e);
-  }
 
   runApp(
     ProviderScope(
       overrides: [
-        initialThemeProvider.overrideWithValue(savedTheme),
         initialLocaleProvider.overrideWithValue(savedLanguage),
       ],
       child: const MyApp(),
@@ -99,7 +74,6 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   void initState() {
     super.initState();
-    // Create router ONCE - prevents navigation reset on theme change
     _router = createGoRouter();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -111,8 +85,6 @@ class _MyAppState extends ConsumerState<MyApp> {
         _router.push('/viewer?path=$encodedPath&name=$fileName');
       }, onError: (e) => log.e('File intent error: $e'));
 
-      // Initialize file intent service AFTER listener is set up
-      // so cold-start intents are not missed
       FileIntentService.initialize();
     });
   }
@@ -125,15 +97,25 @@ class _MyAppState extends ConsumerState<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    final themeMode = ref.watch(themeModeProvider);
     final locale = ref.watch(localeProvider);
 
     return MaterialApp.router(
-      title: 'Fadocx',
+      title: 'Air Docs Viewer',
       debugShowCheckedModeBanner: false,
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        // Bump in-app text; keep a higher floor so UI labels stay readable.
+        final scaled = mq.textScaler.scale(1.0) * 1.15;
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: TextScaler.linear(scaled.clamp(1.1, 1.45)),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: themeMode,
+      darkTheme: AppTheme.lightTheme,
+      themeMode: ThemeMode.light,
       locale: locale,
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -142,7 +124,6 @@ class _MyAppState extends ConsumerState<MyApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      // Use the pre-created router - never changes on rebuild
       routerConfig: _router,
     );
   }

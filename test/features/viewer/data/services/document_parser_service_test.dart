@@ -2,14 +2,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fadocx/features/viewer/data/services/document_parser_service.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/document_parser_service.dart';
 
 void main() {
   group('DocumentParserService.parseCSV', () {
     test('parses quoted commas, escaped quotes, and multiline fields',
         () async {
       final directory =
-          await Directory.systemTemp.createTemp('fadocx_csv_test');
+          await Directory.systemTemp.createTemp('air_docs_viewer_csv_test');
       final file = File('${directory.path}/sample.csv');
       await file.writeAsString(
         'name,notes\n'

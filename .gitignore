@@ -111,6 +111,7 @@ coverage/
 *.jks
 *.keystore
 android/key.properties
+android/keystore-credentials.txt
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 
 # LibreOfficeKit native libraries (~250MB)
@@ -122,3 +123,9 @@ android/key.properties
 
 # Local task tracking (not for repo)
 tasks/
+
+# Extra build / packaging outputs
+android/build/
+dist/
+assets/_logo_bg.txt
+assets/_logo_raw.png

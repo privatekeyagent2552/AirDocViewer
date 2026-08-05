@@ -9,13 +9,13 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
-  String get appName => 'Fadocx';
+  String get appName => 'Air Docs Viewer';
 
   @override
   String get appDescription => 'عارض المستندات';
 
   @override
-  String get homeTitle => 'Fadocx';
+  String get homeTitle => 'Air Docs Viewer';
 
   @override
   String get recentFiles => 'الملفات الأخيرة';
@@ -204,10 +204,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get languageChanged => 'تم تغيير اللغة إلى العربية';
 
   @override
-  String get privacyDescription => 'Fadocx عارض مستندات. تُحفظ ملفاتك محلياً على جهازك ولا تُرسل أبداً إلى أي خادم.';
+  String get privacyDescription => 'Air Docs Viewer عارض مستندات. تُحفظ ملفاتك محلياً على جهازك ولا تُرسل أبداً إلى أي خادم.';
 
   @override
-  String get aboutDescription => 'Fadocx v1.0.0 - عارض مستندات خاص بك. بناؤه باحترام خصوصيتك.';
+  String get aboutDescription => 'Air Docs Viewer v1.0.0 - عارض مستندات خاص بك. بناؤه باحترام خصوصيتك.';
 
   @override
   String get tableRows => 'صفوف';
@@ -395,7 +395,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get becomeAPatron => 'كن راعياً';
 
   @override
-  String get patreonDescription => 'دعمك يساعد Fadocx وFadCam على الاستمرار في النمو. مشتركو Patreon يحصلون على مزايا حصرية تشمل ميزات مميزة ووصولاً مبكراً عبر جميع تطبيقات FadSec Lab.\n\nلمزيد من المعلومات، زر Patreon من الرابط أدناه واطلع على الباقات المتاحة ومزاياها.';
+  String get patreonDescription => 'دعمك يساعد Air Docs Viewer وعلى الاستمرار في النمو. مشتركو Patreon يحصلون على مزايا حصرية تشمل ميزات مميزة ووصولاً مبكراً عبر جميع تطبيقات Crypto Sys Development.\n\nلمزيد من المعلومات، زر Patreon من الرابط أدناه واطلع على الباقات المتاحة ومزاياها.';
 
   @override
   String get discordTitle => 'انضم إلى Discord الخاص بنا';
@@ -515,7 +515,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get monthDec => 'ديس';
 
   @override
-  String get homeWelcomeTitle => 'مرحباً بك في Fadocx';
+  String get homeWelcomeTitle => 'مرحباً بك في Air Docs Viewer';
 
   @override
   String get homeWelcomeSubtitle => 'استكشف ملفات الأمثلة أو استورد مستنداتك الخاصة للبدء';
@@ -554,7 +554,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get onboardingGetStarted => 'ابدأ';
 
   @override
-  String get onboardingSlide1Title => 'مرحبا في Fadocx';
+  String get onboardingSlide1Title => 'مرحبا في Air Docs Viewer';
 
   @override
   String get onboardingSlide1Tagline => 'رفيقك الخاص الشامل للمستندات';
@@ -710,7 +710,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String homeSaveToDownloadsPath(String name) {
-    return 'التنزيلات/Fadocx/$name';
+    return 'التنزيلات/AirDocsViewer/$name';
   }
 
   @override
@@ -721,7 +721,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String homeSavedToDownloads(String name) {
-    return 'تم الحفظ في التنزيلات/Fadocx/$name';
+    return 'تم الحفظ في التنزيلات/AirDocsViewer/$name';
   }
 
   @override
@@ -1008,7 +1008,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get whatsNewEditing => 'تحرير المستندات';
 
   @override
-  String get whatsNewEditingDesc => 'أجرِ تعديلات سريعة على مستنداتك داخل Fadocx.';
+  String get whatsNewEditingDesc => 'أجرِ تعديلات سريعة على مستنداتك داخل Air Docs Viewer.';
 
   @override
   String get whatsNewBookmarks => 'الإشارات المرجعية والتعليقات';
@@ -1038,10 +1038,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get whatsNewOfflineFirst => 'عارض مستندات يعمل دون اتصال أولاً ومبني للخصوصية. لا حسابات ولا تتبع ولا حاجة للإنترنت.';
 
   @override
-  String get whatsNewThankYou => 'شكراً لاستخدامك Fadocx';
+  String get whatsNewThankYou => 'شكراً لاستخدامك Air Docs Viewer';
 
   @override
-  String get whatsNewThankYouDesc => 'إذا وجدت قيمة في Fadocx ففكر في دعم تطويره. مساهمتك تساعدنا على الاستمرار في بناء أدوات تضع الخصوصية أولاً.';
+  String get whatsNewThankYouDesc => 'إذا وجدت قيمة في Air Docs Viewer ففكر في دعم تطويره. مساهمتك تساعدنا على الاستمرار في بناء أدوات تضع الخصوصية أولاً.';
 
   @override
   String get drawerWhatNew => 'ما الجديد';
@@ -1104,7 +1104,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get updateAvailableTitle => 'تحديث متاح';
 
   @override
-  String get updateAvailableSubtitle => 'نسخة جديدة من Fadocx جاهزة للتنزيل';
+  String get updateAvailableSubtitle => 'نسخة جديدة من Air Docs Viewer جاهزة للتنزيل';
 
   @override
   String get updateStableRelease => 'إصدار مستقر';
@@ -1131,7 +1131,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get updateVisitGithub => 'زيارة GitHub';
 
   @override
-  String get updateBetaInfo => 'تطبيق Fadocx بيتا مستقل ويمكن تثبيته بجانب الإصدار المستقر. لن يتداخل مع التطبيق المستقر أو بياناته.\n\nثبّت البيتا لاختبار الميزات الجديدة قبل وصولها إلى الإصدار المستقر.';
+  String get updateBetaInfo => 'تطبيق Air Docs Viewer بيتا مستقل ويمكن تثبيته بجانب الإصدار المستقر. لن يتداخل مع التطبيق المستقر أو بياناته.\n\nثبّت البيتا لاختبار الميزات الجديدة قبل وصولها إلى الإصدار المستقر.';
 
   @override
   String get updateBannerStable => 'تحديث مستقر';
@@ -1188,7 +1188,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsStorageInfo => 'تُخزَّن المستندات في مجلد خاص على جهازك ولا يمكن للتطبيقات الأخرى الوصول إليها';
 
   @override
-  String get settingsStoragePrivateFolderInfo => 'تُخزَّن المستندات في مجلد خاص مخفي عن التطبيقات الأخرى ومديري الملفات. لا يمكن الوصول إليها إلا من خلال Fadocx.';
+  String get settingsStoragePrivateFolderInfo => 'تُخزَّن المستندات في مجلد خاص مخفي عن التطبيقات الأخرى ومديري الملفات. لا يمكن الوصول إليها إلا من خلال Air Docs Viewer.';
 
   @override
   String get settingsStorageDeleteInfo => 'احذف المستندات من منطقة الخطر في الإعدادات';
@@ -1242,10 +1242,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsPrivacyPolicy => 'سياسة الخصوصية';
 
   @override
-  String get settingsMoreFromFadsec => 'المزيد من FadSec Lab';
+  String get settingsMoreFromFadsec => 'المزيد من Crypto Sys Development';
 
   @override
-  String get settingsFadocxDesc => 'عارض المستندات الخاص بك';
+  String get settingsAppDesc => 'عارض المستندات الخاص بك';
 
   @override
   String get settingsDangerZone => 'منطقة الخطر';
@@ -1316,7 +1316,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsShareApp => 'شارك مع الأصدقاء';
 
   @override
-  String get settingsShareMessage => 'جرّب Fadocx!\n\nعارض مستندات متكامل: PDF وملفات Office والجداول والعروض التقديمية وملفات البرمجة واستخراج النص عبر OCR، بالكامل دون اتصال، بدون تتبع، ومفتوح المصدر.\n\nhttps://github.com/anonfaded/Fadocx';
+  String get settingsShareMessage => 'جرّب Air Docs Viewer!\n\nعارض مستندات متكامل: PDF وملفات Office والجداول والعروض التقديمية وملفات البرمجة واستخراج النص عبر OCR، بالكامل دون اتصال، بدون تتبع، ومفتوح المصدر.\n\n';
+
+  @override
+  String get settingsDeveloper => 'Developer';
+
+  @override
+  String get settingsDeveloperName => 'Crypto Sys Development';
 
   @override
   String get settingsShareVia => 'مشاركة عبر...';
@@ -1346,7 +1352,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsPrivacyByDesign => 'نؤمن بالخصوصية حسب التصميم.';
 
   @override
-  String get settingsPrivacyTransparency => 'تم بناء Fadocx بشفافية. مستنداتك هي شأنك الخاص - وليس شأننا.';
+  String get settingsPrivacyTransparency => 'تم بناء Air Docs Viewer بشفافية. مستنداتك هي شأنك الخاص - وليس شأننا.';
 
   @override
   String get settingsViewSourceCode => 'عرض الكود المصدري';
@@ -1382,7 +1388,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsIn => 'في';
 
   @override
-  String get settingsCopyright => '© 2024 – 2026 FadSec Lab · GPLv3 · fadseclab.com';
+  String get settingsCopyright => '© 2024 – 2026 Crypto Sys Development · GPLv3 · cryptosys.dev';
 
   @override
   String settingsTypeToConfirm(String text) {
@@ -1664,10 +1670,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get viewerEdit => 'تحرير';
 
   @override
-  String get viewerEditWithEngine => 'تحرير بمحرك Fadocx';
+  String get viewerEditWithEngine => 'تحرير بمحرك Air Docs Viewer';
 
   @override
-  String get viewerEditWithEngineDesc => 'افتح جدول البيانات هذا في محرك عرض Fadocx لمعاينة مرئية دقيقة بكامل التنسيق والرسوم والتخطيط.';
+  String get viewerEditWithEngineDesc => 'افتح جدول البيانات هذا في محرك عرض Air Docs Viewer لمعاينة مرئية دقيقة بكامل التنسيق والرسوم والتخطيط.';
 
   @override
   String get viewerEditWithEngineNote => 'ملاحظة: التحرير التفاعلي قادم في تحديث مستقبلي.';
@@ -1977,7 +1983,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get lokitPreparingDoc => 'جارٍ تحضير مستندك...';
 
   @override
-  String get lokitWarmingUp => 'جارٍ تشغيل محرك Fadocx...';
+  String get lokitWarmingUp => 'جارٍ تشغيل محرك Air Docs Viewer...';
 
   @override
   String get lokitAlmostThere => 'على وشك الانتهاء';
@@ -1989,5 +1995,5 @@ class AppLocalizationsAr extends AppLocalizations {
   String get lokitFailedToRender => 'فشل في عرض المستند';
 
   @override
-  String get drawerFadSecLab => 'فادسيك لاب';
+  String get drawerFadSecLab => 'Crypto Sys Development';
 }

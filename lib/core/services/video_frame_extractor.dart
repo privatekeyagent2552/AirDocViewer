@@ -5,7 +5,7 @@ import 'package:logger/logger.dart';
 /// Service for extracting video frames for thumbnail generation
 /// Uses Android MediaMetadataRetriever via method channel
 class VideoFrameExtractor {
-  static const _platform = MethodChannel('com.fadseclab.fadocx/video');
+  static const _platform = MethodChannel('com.airdocsviewer/video');
   static final _log = Logger();
 
   /// Extract first frame (or frame at specified time) from video file

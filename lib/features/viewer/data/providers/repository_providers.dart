@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fadocx/features/viewer/data/repositories/document_parsing_repository_impl.dart';
-import 'package:fadocx/features/viewer/data/services/cache_service.dart';
-import 'package:fadocx/features/viewer/data/services/platform_channel_service.dart';
-import 'package:fadocx/features/viewer/domain/repositories/document_parsing_repository.dart';
+import 'package:air_docs_viewer/features/viewer/data/repositories/document_parsing_repository_impl.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/cache_service.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/platform_channel_service.dart';
+import 'package:air_docs_viewer/features/viewer/domain/repositories/document_parsing_repository.dart';
 
 /// Initialize cache service
 final cacheServiceProvider = Provider<HiveCacheService>((ref) {

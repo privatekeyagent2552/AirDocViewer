@@ -9,13 +9,13 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get appName => 'Fadocx';
+  String get appName => 'Air Docs Viewer';
 
   @override
   String get appDescription => '文档查看器';
 
   @override
-  String get homeTitle => 'Fadocx';
+  String get homeTitle => 'Air Docs Viewer';
 
   @override
   String get recentFiles => '最近文件';
@@ -204,10 +204,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get languageChanged => '语言已更改为中文';
 
   @override
-  String get privacyDescription => 'Fadocx 是一款文档查看器。您的文件会本地保存在设备上，绝不会传输到任何服务器。';
+  String get privacyDescription => 'Air Docs Viewer 是一款文档查看器。您的文件会本地保存在设备上，绝不会传输到任何服务器。';
 
   @override
-  String get aboutDescription => 'Fadocx v1.0.0 - 您的私人文档查看器。以尊重您的隐私为原则构建。';
+  String get aboutDescription => 'Air Docs Viewer v1.0.0 - 您的私人文档查看器。以尊重您的隐私为原则构建。';
 
   @override
   String get tableRows => '行';
@@ -395,7 +395,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get becomeAPatron => '成为赞助者';
 
   @override
-  String get patreonDescription => '你的支持能帮助 Fadocx 和 FadCam 持续成长。Patreon 订阅者可解锁专属福利，包括高级功能以及 FadSec Lab 全部应用的抢先体验。\n\n想了解更多，请通过下方链接访问 Patreon，并查看可用档位及其福利。';
+  String get patreonDescription => '你的支持能帮助 Air Docs Viewer 和 持续成长。Patreon 订阅者可解锁专属福利，包括高级功能以及 Crypto Sys Development 全部应用的抢先体验。\n\n想了解更多，请通过下方链接访问 Patreon，并查看可用档位及其福利。';
 
   @override
   String get discordTitle => '加入我们的 Discord';
@@ -515,7 +515,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get monthDec => '12月';
 
   @override
-  String get homeWelcomeTitle => '欢迎使用 Fadocx';
+  String get homeWelcomeTitle => '欢迎使用 Air Docs Viewer';
 
   @override
   String get homeWelcomeSubtitle => '浏览示例文件或导入您自己的文档以开始使用';
@@ -554,7 +554,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get onboardingGetStarted => '开始使用';
 
   @override
-  String get onboardingSlide1Title => '欢迎使用 Fadocx';
+  String get onboardingSlide1Title => '欢迎使用 Air Docs Viewer';
 
   @override
   String get onboardingSlide1Tagline => '您的一体化私人文档伴侣';
@@ -710,7 +710,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String homeSaveToDownloadsPath(String name) {
-    return '下载/Fadocx/$name';
+    return '下载/AirDocsViewer/$name';
   }
 
   @override
@@ -721,7 +721,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String homeSavedToDownloads(String name) {
-    return '已保存至 下载/Fadocx/$name';
+    return '已保存至 下载/AirDocsViewer/$name';
   }
 
   @override
@@ -1008,7 +1008,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get whatsNewEditing => '文档编辑';
 
   @override
-  String get whatsNewEditingDesc => '直接在 Fadocx 中快速编辑你的文档。';
+  String get whatsNewEditingDesc => '直接在 Air Docs Viewer 中快速编辑你的文档。';
 
   @override
   String get whatsNewBookmarks => '书签与注释';
@@ -1038,10 +1038,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get whatsNewOfflineFirst => '为隐私而生的离线优先文档查看器。无需账号、无跟踪、无需联网。';
 
   @override
-  String get whatsNewThankYou => '感谢使用 Fadocx';
+  String get whatsNewThankYou => '感谢使用 Air Docs Viewer';
 
   @override
-  String get whatsNewThankYouDesc => '如果你觉得 Fadocx 有价值，欢迎支持它的开发。你的贡献能帮助我们继续打造以隐私为先的工具。';
+  String get whatsNewThankYouDesc => '如果你觉得 Air Docs Viewer 有价值，欢迎支持它的开发。你的贡献能帮助我们继续打造以隐私为先的工具。';
 
   @override
   String get drawerWhatNew => '最新动态';
@@ -1104,7 +1104,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateAvailableTitle => '有可用更新';
 
   @override
-  String get updateAvailableSubtitle => 'Fadocx的新版本已准备好下载';
+  String get updateAvailableSubtitle => 'Air Docs Viewer的新版本已准备好下载';
 
   @override
   String get updateStableRelease => '稳定版';
@@ -1131,7 +1131,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateVisitGithub => '访问 GitHub';
 
   @override
-  String get updateBetaInfo => 'Fadocx 测试版是一个独立应用，可以与稳定版同时安装。它不会影响您的稳定版应用或其数据。\n\n安装测试版可在新功能进入稳定版前进行试用。';
+  String get updateBetaInfo => 'Air Docs Viewer 测试版是一个独立应用，可以与稳定版同时安装。它不会影响您的稳定版应用或其数据。\n\n安装测试版可在新功能进入稳定版前进行试用。';
 
   @override
   String get updateBannerStable => '稳定更新';
@@ -1188,7 +1188,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsStorageInfo => '文档存储在设备上的私有文件夹中，其他应用无法访问';
 
   @override
-  String get settingsStoragePrivateFolderInfo => '文档存储在私有文件夹中，对其他应用和文件管理器隐藏。只有 Fadocx 可以访问。';
+  String get settingsStoragePrivateFolderInfo => '文档存储在私有文件夹中，对其他应用和文件管理器隐藏。只有 Air Docs Viewer 可以访问。';
 
   @override
   String get settingsStorageDeleteInfo => '请在设置中的危险区域删除文档';
@@ -1242,10 +1242,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPrivacyPolicy => '隐私政策';
 
   @override
-  String get settingsMoreFromFadsec => '来自 FadSec Lab 的更多应用';
+  String get settingsMoreFromFadsec => '来自 Crypto Sys Development 的更多应用';
 
   @override
-  String get settingsFadocxDesc => '您的文档查看器';
+  String get settingsAppDesc => '您的文档查看器';
 
   @override
   String get settingsDangerZone => '危险区域';
@@ -1316,7 +1316,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShareApp => '分享给朋友';
 
   @override
-  String get settingsShareMessage => '来看看 Fadocx！\n\n一体化文档查看器：支持 PDF、Office、电子表格、演示文稿、代码文件和 OCR 文本提取，完全离线、无跟踪、开源。\n\nhttps://github.com/anonfaded/Fadocx';
+  String get settingsShareMessage => '来看看 Air Docs Viewer！\n\n一体化文档查看器：支持 PDF、Office、电子表格、演示文稿、代码文件和 OCR 文本提取，完全离线、无跟踪、开源。\n\n';
+
+  @override
+  String get settingsDeveloper => 'Developer';
+
+  @override
+  String get settingsDeveloperName => 'Crypto Sys Development';
 
   @override
   String get settingsShareVia => '通过以下方式分享...';
@@ -1346,7 +1352,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPrivacyByDesign => '我们相信隐私保护应从设计开始。';
 
   @override
-  String get settingsPrivacyTransparency => 'Fadocx 以透明的原则构建。您的文档是您的 – 不是我们的。';
+  String get settingsPrivacyTransparency => 'Air Docs Viewer 以透明的原则构建。您的文档是您的 – 不是我们的。';
 
   @override
   String get settingsViewSourceCode => '查看源代码';
@@ -1382,7 +1388,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsIn => '在';
 
   @override
-  String get settingsCopyright => '© 2024 – 2026 FadSec Lab · GPLv3 · fadseclab.com';
+  String get settingsCopyright => '© 2024 – 2026 Crypto Sys Development · GPLv3 · cryptosys.dev';
 
   @override
   String settingsTypeToConfirm(String text) {
@@ -1664,10 +1670,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get viewerEdit => '编辑';
 
   @override
-  String get viewerEditWithEngine => '使用 Fadocx Engine 编辑';
+  String get viewerEditWithEngine => '使用 Air Docs Viewer Engine 编辑';
 
   @override
-  String get viewerEditWithEngineDesc => '在 Fadocx 渲染引擎中打开此电子表格，以获得包含完整格式、图表和布局保真度的视觉预览。';
+  String get viewerEditWithEngineDesc => '在 Air Docs Viewer 渲染引擎中打开此电子表格，以获得包含完整格式、图表和布局保真度的视觉预览。';
 
   @override
   String get viewerEditWithEngineNote => '注意：交互式编辑将在未来更新中推出。';
@@ -1977,7 +1983,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lokitPreparingDoc => '正在准备您的文档...';
 
   @override
-  String get lokitWarmingUp => '正在启动 Fadocx 引擎...';
+  String get lokitWarmingUp => '正在启动 Air Docs Viewer 引擎...';
 
   @override
   String get lokitAlmostThere => '即将完成';
@@ -1989,5 +1995,5 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lokitFailedToRender => '文档渲染失败';
 
   @override
-  String get drawerFadSecLab => 'FadSec 实验室';
+  String get drawerFadSecLab => 'Crypto Sys Development';
 }

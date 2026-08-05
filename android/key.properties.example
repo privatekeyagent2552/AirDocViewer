@@ -1,0 +1,7 @@
+# Copy to android/key.properties (gitignored) and fill in real values.
+# storeFile is relative to the android/ folder.
+
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=airdocsviewer
+storeFile=upload-keystore.jks

@@ -130,7 +130,7 @@ class AppTheme {
       centerTitle: true,
       titleTextStyle: const TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 18,
+          fontSize: 20,
           fontWeight: FontWeight.w600,
           color: Color(0xFF1B1B1B)),
       iconTheme: const IconThemeData(color: Color(0xFF1B1B1B)),
@@ -144,63 +144,63 @@ class AppTheme {
     textTheme: const TextTheme(
       displayLarge: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 32,
+          fontSize: 36,
           fontWeight: FontWeight.bold,
           color: Color(0xFF1B1B1B)),
       displayMedium: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 28,
+          fontSize: 32,
           fontWeight: FontWeight.bold,
           color: Color(0xFF1B1B1B)),
       headlineMedium: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 24,
+          fontSize: 26,
           fontWeight: FontWeight.w600,
           color: Color(0xFF1B1B1B)),
       headlineSmall: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 20,
+          fontSize: 22,
           fontWeight: FontWeight.w600,
           color: Color(0xFF1B1B1B)),
       titleLarge: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 18,
+          fontSize: 20,
           fontWeight: FontWeight.w600,
           color: Color(0xFF1B1B1B)),
       titleMedium: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 16,
+          fontSize: 18,
           fontWeight: FontWeight.w500,
           color: Color(0xFF2B2B2B)),
       titleSmall: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 14,
+          fontSize: 16,
           fontWeight: FontWeight.w500,
           color: Color(0xFF3B3B3B)),
       bodyLarge: TextStyle(
-          fontFamily: 'Ubuntu', fontSize: 16, color: Color(0xFF404040)),
+          fontFamily: 'Ubuntu', fontSize: 18, color: Color(0xFF404040)),
       bodyMedium: TextStyle(
-          fontFamily: 'Ubuntu', fontSize: 14, color: Color(0xFF616161)),
+          fontFamily: 'Ubuntu', fontSize: 16, color: Color(0xFF616161)),
       bodySmall: TextStyle(
-          fontFamily: 'Ubuntu', fontSize: 12, color: Color(0xFF757575)),
+          fontFamily: 'Ubuntu', fontSize: 14, color: Color(0xFF757575)),
       labelLarge: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 14,
+          fontSize: 16,
           fontWeight: FontWeight.w500,
           color: Color(0xFF1B1B1B)),
       labelMedium: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: FontWeight.w500,
           color: Color(0xFF616161)),
       labelSmall: TextStyle(
           fontFamily: 'Ubuntu',
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: FontWeight.w500,
           color: Color(0xFF757575)),
     ),
     dividerColor: const Color(0xFFE8E8E8),
-    iconTheme: const IconThemeData(color: Color(0xFF1B1B1B), size: 24),
+    iconTheme: const IconThemeData(color: Color(0xFF1B1B1B), size: 26),
     // ignore: deprecated_member_use — required for M3 expressive slider in Flutter 3.41
     sliderTheme: const SliderThemeData(year2023: false),
     filledButtonTheme: FilledButtonThemeData(

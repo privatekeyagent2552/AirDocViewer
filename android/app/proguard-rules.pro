@@ -1,14 +1,17 @@
-# ProGuard rules for Fadocx - R8 Minification with Selective Keeps
+# ProGuard rules for Air Docs Viewer - R8 Minification with Selective Keeps
 
 # ── CRITICAL: Keep reflective entrypoints used from MainActivity ──
--keep class com.fadseclab.fadocx.NativeDocumentParser { *; }
--keep class com.fadseclab.fadocx.PdfTextExtractor { *; }
--keep class com.fadseclab.fadocx.LOKitWrapper { *; }
+-keep class com.airdocsviewer.NativeDocumentParser { *; }
+-keep class com.airdocsviewer.PdfTextExtractor { *; }
 
 # ── CRITICAL: Apache POI / XMLBeans / OOXML schemas (reflection-heavy) ──
 # These must be kept unobfuscated because POI uses reflection to load schemas
 # and XMLBeans uses ServiceLoader to discover type systems
 -keep class org.apache.poi.** { *; }
+-keep class org.apache.poi.hslf.extractor.** { *; }
+-keep class org.apache.poi.xslf.extractor.** { *; }
+-keep class org.apache.poi.sl.extractor.** { *; }
+-keep class org.apache.poi.openxml4j.opc.** { *; }
 -keep class org.apache.xmlbeans.** { *; }
 -keep class org.openxmlformats.schemas.** { *; }
 -keep class schemaorg_apache_xmlbeans.** { *; }
@@ -27,10 +30,6 @@
 # ── CRITICAL: PDFBox (reflection-based) ──
 -keep class com.tom_roush.pdfbox.** { *; }
 
-# ── CRITICAL: LibreOffice JNI bindings ──
--keep class org.libreoffice.** { *; }
--keep class com.sun.star.** { *; }
-
 # ── CRITICAL: Flutter / Android embedding ──
 -keep class io.flutter.app.** { *; }
 -keep class io.flutter.plugin.** { *; }
@@ -45,6 +44,13 @@
 -allowaccessmodification
 -mergeinterfacesaggressively
 
+# ── Release: strip verbose logs (reduces sensitive path leakage) ──
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
 # ── WARNINGS: Suppress known safe warnings ──
 -dontwarn org.apache.poi.**
 -dontwarn org.apache.xmlbeans.**
@@ -54,8 +60,6 @@
 -dontwarn com.graphbuilder.**
 -dontwarn com.tom_roush.pdfbox.**
 -dontwarn java.awt.**
--dontwarn org.libreoffice.**
--dontwarn com.sun.star.**
 -dontwarn com.google.android.play.core.**
 -dontwarn io.flutter.embedding.android.FlutterPlayStoreSplitApplication
 -dontwarn javax.xml.**

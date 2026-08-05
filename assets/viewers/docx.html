@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+      overflow-x: auto;
+    }
+    #status {
+      font-family: sans-serif; text-align: center; padding: 24px; color: #444;
+    }
+    #doc-container {
+      padding: 8px;
+      box-sizing: border-box;
+      overflow-x: auto;
+      width: 100%;
+    }
+    /* Keep pages left-aligned so scaling never clips the left edge. */
+    #doc-container .docx-wrapper {
+      align-items: flex-start !important;
+      padding: 8px !important;
+      background: transparent !important;
+      transform-origin: top left;
+    }
+    #doc-container .docx {
+      transform-origin: top left;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      margin: 0 0 12px 0 !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Opening document…</div>
+  <div id="doc-container"></div>
+  <script src="jszip.min.js"></script>
+  <script src="docx-preview.js"></script>
+  <script>
+    const statusEl = document.getElementById('status');
+    const container = document.getElementById('doc-container');
+
+    let currentZoom = 1;
+    let fitZoom = 1;
+    const MIN_ZOOM = 0.25;
+    const MAX_ZOOM = 3;
+
+    function setStatus(text) {
+      statusEl.textContent = text || '';
+      statusEl.style.display = text ? 'block' : 'none';
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({ type: 'status', message: text || '' }));
+      }
+    }
+
+    function fail(message) {
+      setStatus(message);
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({ type: 'error', message: String(message) }));
+      }
+    }
+
+    function notifyZoom() {
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({
+          type: 'zoom',
+          zoom: currentZoom,
+          fitZoom: fitZoom,
+        }));
+      }
+    }
+
+    function pageElements() {
+      return container.querySelectorAll('.docx-wrapper > .docx, .docx-wrapper > section.docx, section.docx, .docx');
+    }
+
+    function naturalPageWidth() {
+      const wrapper = container.querySelector('.docx-wrapper');
+      const prevWrapperZoom = wrapper ? wrapper.style.zoom : '';
+      if (wrapper) wrapper.style.zoom = '1';
+      const pages = pageElements();
+      let maxW = 0;
+      for (const page of pages) {
+        const w = Math.max(page.scrollWidth || 0, page.offsetWidth || 0);
+        if (w > maxW) maxW = w;
+      }
+      if (wrapper) wrapper.style.zoom = prevWrapperZoom;
+      return maxW;
+    }
+
+    function applyZoom(zoom) {
+      const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+      currentZoom = Math.round(next * 100) / 100;
+      const pages = pageElements();
+      const wrapper = container.querySelector('.docx-wrapper');
+      if (wrapper) {
+        // Chromium/WebView `zoom` keeps scroll metrics correct.
+        wrapper.style.zoom = String(currentZoom);
+      } else {
+        for (const page of pages) {
+          page.style.zoom = String(currentZoom);
+        }
+      }
+      notifyZoom();
+      return currentZoom;
+    }
+
+    function computeFitZoom() {
+      const pageW = naturalPageWidth();
+      const avail = Math.max(120, window.innerWidth - 16);
+      if (!pageW || pageW <= 0) return 1;
+      // Fit page width into the viewport; never upscale past 100% by default.
+      return Math.max(MIN_ZOOM, Math.min(1, avail / pageW));
+    }
+
+    window.fitDocxToWidth = function() {
+      fitZoom = computeFitZoom();
+      return applyZoom(fitZoom);
+    };
+
+    window.setDocxZoom = function(zoom) {
+      return applyZoom(Number(zoom) || 1);
+    };
+
+    window.adjustDocxZoom = function(delta) {
+      return applyZoom(currentZoom + (Number(delta) || 0));
+    };
+
+    window.getDocxZoom = function() {
+      return currentZoom;
+    };
+
+    function b64ToBytes(b64) {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    async function loadChunks(count) {
+      const parts = [];
+      for (let i = 0; i < count; i++) {
+        setStatus('Loading document… ' + Math.min(99, Math.round((i / Math.max(count, 1)) * 100)) + '%');
+        const chunk = await new Promise((resolve, reject) => {
+          window.__docxChunkResolvers = window.__docxChunkResolvers || {};
+          const id = 'c' + i + '_' + Date.now();
+          const timer = setTimeout(() => {
+            delete window.__docxChunkResolvers[id];
+            reject(new Error('Timed out loading document chunk ' + i));
+          }, 20000);
+          window.__docxChunkResolvers[id] = (value) => {
+            clearTimeout(timer);
+            delete window.__docxChunkResolvers[id];
+            resolve(value);
+          };
+          if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+            AirDocsViewer.postMessage(JSON.stringify({ type: 'getChunk', index: i, requestId: id }));
+          } else {
+            reject(new Error('Offline bridge unavailable'));
+          }
+        });
+        parts.push(b64ToBytes(chunk));
+      }
+      let total = 0;
+      for (const p of parts) total += p.length;
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const p of parts) {
+        merged.set(p, offset);
+        offset += p.length;
+      }
+      return merged;
+    }
+
+    window.receiveDocChunk = function(requestId, chunkB64) {
+      const resolvers = window.__docxChunkResolvers || {};
+      if (resolvers[requestId]) resolvers[requestId](chunkB64);
+    };
+
+    window.startOfflineDocx = async function(chunkCount) {
+      try {
+        if (!window.JSZip) {
+          throw new Error('JSZip failed to load');
+        }
+        if (!window.docx || !docx.renderAsync) {
+          throw new Error('DOCX renderer failed to load');
+        }
+        setStatus('Preparing DOCX…');
+        const bytes = await loadChunks(chunkCount);
+        setStatus('Rendering DOCX…');
+        container.innerHTML = '';
+        await docx.renderAsync(bytes.buffer, container, null, {
+          className: 'docx',
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          breakPages: true,
+          useBase64URL: true,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+        });
+        // Wait a frame so layout sizes settle, then fit to phone width.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        window.fitDocxToWidth();
+        setStatus('');
+        if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+          AirDocsViewer.postMessage(JSON.stringify({ type: 'rendered' }));
+        }
+      } catch (e) {
+        fail(e && e.message ? e.message : String(e));
+      }
+    };
+
+    window.addEventListener('resize', function() {
+      // Keep current relative zoom vs fit when rotating.
+      if (!container.querySelector('.docx-wrapper, .docx')) return;
+      const ratio = fitZoom > 0 ? (currentZoom / fitZoom) : 1;
+      fitZoom = computeFitZoom();
+      applyZoom(fitZoom * ratio);
+    });
+  </script>
+</body>
+</html>

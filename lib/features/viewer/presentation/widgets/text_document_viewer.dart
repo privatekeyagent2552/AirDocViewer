@@ -11,7 +11,8 @@ import 'package:highlight/languages/bash.dart';
 import 'package:highlight/languages/xml.dart';
 import 'package:highlight/languages/markdown.dart';
 import 'package:highlight/languages/json.dart' as hl_json_lang;
-import 'package:fadocx/features/viewer/presentation/widgets/text_document_search_drawer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/text_document_search_drawer.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/office_glyph_sanitizer.dart';
 
 final log = Logger();
 
@@ -177,7 +178,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
   }
 
   void _initializeContent() {
-    _fullContent = widget.textContent ?? '';
+    _fullContent = OfficeGlyphSanitizer.sanitize(widget.textContent ?? '');
     _lines = _fullContent.split(RegExp(r'\r\n|\r|\n'));
     _highlightedLines = const [];
     _lineTextKeys.clear();

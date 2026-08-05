@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,11 +9,13 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
-import 'package:fadocx/config/theme/app_theme.dart';
-import 'package:fadocx/core/services/storage_service.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/config/theme/app_theme.dart';
+import 'package:air_docs_viewer/core/presentation/layout/shell_layout.dart';
+import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
 
 final log = Logger();
 
@@ -43,7 +45,6 @@ class DeviceDocument {
     return '${(fileSizeBytes / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 }
-
 /// Full-screen import documents screen with device-wide scanning
 class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key});
@@ -994,45 +995,80 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
           ),
         ),
       ),
-      child: Row(
-        children: [
-          Text(
-            AppLocalizations.of(context)!.librarySelected(_selectedFilePaths.length),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < ShellLayout.narrowWidth;
+          final selectedLabel = Text(
+            AppLocalizations.of(context)!
+                .librarySelected(_selectedFilePaths.length),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const Spacer(),
-          // Clear button
-          OutlinedButton.icon(
+                  fontWeight: FontWeight.w500,
+                ),
+          );
+          final clearBtn = OutlinedButton.icon(
             onPressed: () {
               setState(() => _selectedFilePaths.clear());
             },
-            icon: Icon(Icons.close, size: 16, color: Theme.of(context).colorScheme.error),
+            icon: Icon(Icons.close,
+                size: 16, color: Theme.of(context).colorScheme.error),
             label: Text(
               AppLocalizations.of(context)!.browseClearSelection,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
             style: OutlinedButton.styleFrom(
-              side: BorderSide(color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              side: BorderSide(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .error
+                      .withValues(alpha: 0.3)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             ),
-          ),
-          const SizedBox(width: 12),
-          // Import button
-          FilledButton.icon(
+          );
+          final importBtn = FilledButton.icon(
             onPressed: _importSelectedFiles,
             icon: const Icon(Icons.download, size: 16),
             label: Text(AppLocalizations.of(context)!.browseImport),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             ),
-          ),
-        ],
+          );
+
+          if (narrow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                selectedLabel,
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: clearBtn),
+                    const SizedBox(width: 8),
+                    Expanded(child: importBtn),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Flexible(child: selectedLabel),
+              const SizedBox(width: 8),
+              clearBtn,
+              const SizedBox(width: 12),
+              importBtn,
+            ],
+          );
+        },
       ),
     );
   }
@@ -1133,152 +1169,73 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
   }
 
   String _getCategoryFromExtension(String extension) {
-    switch (extension.toLowerCase()) {
-      case 'pdf':
-        return 'pdf';
-      case 'docx':
-      case 'doc':
-      case 'odt':
-      case 'rtf':
-      case 'txt':
-      case 'epub':
-      case 'ott':
-        return 'documents';
-      case 'xlsx':
-      case 'xls':
-      case 'ods':
-      case 'csv':
-        return 'spreadsheets';
-      case 'ppt':
-      case 'pptx':
-      case 'odp':
-        return 'presentations';
-      case 'png':
-      case 'jpg':
-      case 'jpeg':
-      case 'gif':
-      case 'webp':
-      case 'bmp':
-      case 'tif':
-      case 'tiff':
-      case 'heic':
-      case 'heif':
-      case 'avif':
-      case 'svg':
-        return 'images';
-      case 'aac':
-      case 'mp3':
-      case 'wav':
-      case 'ogg':
-      case 'flac':
-      case 'm4a':
-      case 'wma':
-      case 'opus':
-      case 'aiff':
-        return 'audio';
-      case 'mp4':
-      case 'avi':
-      case 'mkv':
-      case 'mov':
-      case 'wmv':
-      case 'flv':
-      case 'webm':
-      case '3gp':
-      case 'm4v':
-      case 'mpg':
-      case 'mpeg':
-      case 'fmp4':
-        return 'video';
-      case 'ico':
-      case 'psd':
-      case 'atom':
-      case 'dart':
-      case 'kt':
-      case 'kts':
-      case 'js':
-      case 'ts':
-      case 'jsx':
-      case 'tsx':
-      case 'c':
-      case 'cpp':
-      case 'h':
-      case 'hpp':
-      case 'cs':
-      case 'php':
-      case 'rb':
-      case 'swift':
-      case 'go':
-      case 'rs':
-      case 'sql':
-      case 'yaml':
-      case 'yml':
-      case 'toml':
-      case 'gradle':
-      case 'properties':
-      case 'ini':
-      case 'conf':
-      case 'bat':
-      case 'cmd':
-      case 'ps1':
-      case 'r':
-      case 'java':
-      case 'py':
-      case 'sh':
-      case 'html':
-      case 'md':
-      case 'log':
-      case 'json':
-      case 'xml':
-      case 'fadrec':
-        return 'code';
-      default:
-        return 'other';
-    }
+    return SupportedFormats.categoryOf(extension);
   }
 
   Future<void> _checkAndRequestPermissions() async {
-    log.i('📋 Checking file access permissions...');
-    
+    log.i('Checking file access permissions...');
+
     try {
+      final sdkInt = await _androidSdkInt();
+      // Android 8–10 (API 26–29): use READ_EXTERNAL_STORAGE.
+      // Android 11+ (API 30+): use MANAGE_EXTERNAL_STORAGE for Browse scan.
+      // Viewing via SAF / file picker / intents works on ALL APIs without these.
+      if (sdkInt > 0 && sdkInt < 30) {
+        if (await Permission.storage.isGranted) {
+          log.i('Legacy storage already granted (API $sdkInt)');
+          await _scanDeviceForDocuments();
+          return;
+        }
+        final legacy = await Permission.storage.request();
+        if (legacy.isGranted) {
+          log.i('Legacy storage granted (API $sdkInt)');
+          await _scanDeviceForDocuments();
+          return;
+        }
+        log.w('Legacy storage denied (API $sdkInt) — SAF picker still works');
+        if (mounted) {
+          setState(() {
+            _error = AppLocalizations.of(context)!.browseAllFilesAccessDenied;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
       if (await Permission.manageExternalStorage.isGranted) {
-        log.i('✓ MANAGE_EXTERNAL_STORAGE already granted');
+        log.i('MANAGE_EXTERNAL_STORAGE already granted');
         await _scanDeviceForDocuments();
         return;
       }
 
-      // Request MANAGE_ALL_FILES (Android 11+) - REQUIRED for full document scanning
-      log.i('🔐 Requesting MANAGE_ALL_FILES permission (Android 11+)...');
+      log.i('Requesting MANAGE_ALL_FILES permission (Android 11+)...');
       final status = await Permission.manageExternalStorage.request();
-      
+
       if (status.isGranted) {
-        log.i('✓ MANAGE_ALL_FILES permission granted');
+        log.i('MANAGE_ALL_FILES permission granted');
         await _scanDeviceForDocuments();
         return;
       }
 
-      // Legacy Android fallback (Android 10 and below).
+      // Rare OEM fallback: still try legacy storage if present.
       final legacyStorageStatus = await Permission.storage.request();
       if (legacyStorageStatus.isGranted) {
-        log.i('✓ Legacy storage permission granted');
+        log.i('Legacy storage permission granted');
         await _scanDeviceForDocuments();
         return;
       }
-      
-      // If MANAGE_ALL_FILES rejected, show dialog to open settings
+
       if (status.isDenied || status.isPermanentlyDenied) {
-        log.w('⚠️  MANAGE_ALL_FILES permission rejected/denied');
-        
+        log.w('MANAGE_ALL_FILES permission rejected/denied');
         setState(() {
           _error = AppLocalizations.of(context)!.browseAllFilesAccessDenied;
           _isLoading = false;
         });
-        
-        // Show dialog with "Open Settings" option
         _showOpenSettingsDialog();
         return;
       }
     } catch (e) {
-      log.w('⚠️  Error checking permissions: $e');
+      log.w('Error checking permissions: $e');
       setState(() {
         _error = AppLocalizations.of(context)!.browseErrorPrefix(e.toString());
         _isLoading = false;
@@ -1286,8 +1243,20 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
     }
   }
 
+  Future<int> _androidSdkInt() async {
+    if (!Platform.isAndroid) return 0;
+    try {
+      const platform = MethodChannel('com.airdocsviewer/app_settings');
+      final value = await platform.invokeMethod<int>('getSdkInt');
+      return value ?? 0;
+    } catch (e) {
+      log.w('getSdkInt failed: $e');
+      return 0;
+    }
+  }
+
   void _showOpenSettingsDialog() {
-    const platform = MethodChannel('com.fadseclab.fadocx/app_settings');
+    const platform = MethodChannel('com.airdocsviewer/app_settings');
     
     showDialog(
       context: context,
@@ -1329,24 +1298,24 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
       final legacyStorageStatus = await Permission.storage.status;
 
       if (status.isGranted || legacyStorageStatus.isGranted) {
-        log.i('✓ Storage permission granted after returning from settings');
+        log.i('Γ£ô Storage permission granted after returning from settings');
         await _scanDeviceForDocuments();
         return;
       }
 
-      log.w('⚠️  Storage permission still not granted after returning from settings');
+      log.w('ΓÜá∩╕Å  Storage permission still not granted after returning from settings');
       if (!mounted) return;
       setState(() {
         _error = AppLocalizations.of(context)!.browseAccessStillDisabled;
         _isLoading = false;
       });
     } catch (e) {
-      log.w('⚠️  Failed to re-check storage permission: $e');
+      log.w('ΓÜá∩╕Å  Failed to re-check storage permission: $e');
     }
   }
 
   Future<void> _scanDeviceForDocuments() async {
-    log.i('🔍 Starting device document scan...');
+    log.i('≡ƒöì Starting device document scan...');
     setState(() {
       _isLoading = true;
       _error = null;
@@ -1363,18 +1332,18 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
           pathsToScan.add(downloads);
         }
       } catch (e) {
-        log.d('⚠️  Could not get downloads dir: $e');
+        log.d('ΓÜá∩╕Å  Could not get downloads dir: $e');
       }
 
-      // Try to get Fadocx samples directory
+      // Try to get Air Docs Viewer samples directory
       try {
         final sampleDir = await StorageService.getCategoryDir('Samples');
         if (await sampleDir.exists()) {
           pathsToScan.add(sampleDir);
-          log.i('✓ Added Fadocx Samples directory to scan: ${sampleDir.path}');
+          log.i('Γ£ô Added Air Docs Viewer Samples directory to scan: ${sampleDir.path}');
         }
       } catch (e) {
-        log.d('⚠️  Could not get Fadocx samples dir: $e');
+        log.d('ΓÜá∩╕Å  Could not get Air Docs Viewer samples dir: $e');
       }
 
       // Try to get common user documents paths
@@ -1392,7 +1361,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
       }
 
       if (pathsToScan.isEmpty) {
-        log.w('⚠️  No document directories found');
+        log.w('ΓÜá∩╕Å  No document directories found');
         setState(() {
           _error = AppLocalizations.of(context)!.browseNoDirectories;
           _isLoading = false;
@@ -1411,14 +1380,14 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
           final found = allDocs.length - countBefore;
 
           if (found > 0) {
-            log.i('✓ Found $found documents in ${dir.path}');
+            log.i('Γ£ô Found $found documents in ${dir.path}');
           }
         } catch (e) {
-          log.w('⚠️  Error scanning ${dir.path}: $e');
+          log.w('ΓÜá∩╕Å  Error scanning ${dir.path}: $e');
         }
       }
 
-      log.d('📊 Total documents found: ${allDocs.length}');
+      log.d('≡ƒôè Total documents found: ${allDocs.length}');
 
       // Organize by category
       for (final category in _documentsByCategory.keys) {
@@ -1433,7 +1402,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
       // Log category breakdown
       for (final entry in _documentsByCategory.entries) {
         if (entry.value.isNotEmpty) {
-          log.i('📑 ${entry.key}: ${entry.value.length} documents');
+          log.i('≡ƒôæ ${entry.key}: ${entry.value.length} documents');
         }
       }
 
@@ -1446,9 +1415,9 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
         _isLoading = false;
       });
 
-      log.i('✅ Scan complete: Found ${allDocs.length} total documents');
+      log.i('Γ£à Scan complete: Found ${allDocs.length} total documents');
     } catch (e) {
-      log.e('❌ Error scanning device: $e');
+      log.e('Γ¥î Error scanning device: $e');
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -1479,91 +1448,20 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
 
       // Use followLinks: false to avoid symlink issues
       final entities = await dir.list(followLinks: false).toList();
-      log.d('📍 Depth $currentDepth: "${dir.path}" has ${entities.length} items');
+      log.d('≡ƒôì Depth $currentDepth: "${dir.path}" has ${entities.length} items');
 
-      final supportedTypes = {
-        'pdf',
-        'doc',
-        'docx',
-        'odt',
-        'rtf',
-        'txt',
-        'xlsx',
-        'xls',
-        'ods',
-        'csv',
-        'ppt',
-        'pptx',
-        'odp',
-        'java',
-        'py',
-        'sh',
-        'html',
-        'md',
-        'epub',
-        'ott',
-        'log',
-        'json',
-        'xml',
-        'fadrec',
-        'ico',
-        'psd',
-        'atom',
-        'svg',
-        'png',
-        'jpg',
-        'jpeg',
-        'gif',
-        'webp',
-        'bmp',
-        'tif',
-        'tiff',
-        'heic',
-        'heif',
-        'avif',
-        'aac', 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'wma', 'opus', 'aiff',
-        'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'm4v', 'mpg', 'mpeg', 'fmp4',
-        'dart',
-        'kt',
-        'kts',
-        'js',
-        'ts',
-        'jsx',
-        'tsx',
-        'c',
-        'cpp',
-        'h',
-        'hpp',
-        'cs',
-        'php',
-        'rb',
-        'swift',
-        'go',
-        'rs',
-        'sql',
-        'yaml',
-        'yml',
-        'toml',
-        'gradle',
-        'properties',
-        'ini',
-        'conf',
-        'bat',
-        'cmd',
-        'ps1',
-        'r',
-      };
+      final supportedTypes = SupportedFormats.allExtensions.toSet();
 
       for (final entity in entities) {
         try {
           final entityName = entity.path.split('/').last;
           
           if (entity is File) {
-            log.d('  📄 File: $entityName');
+            log.d('  ≡ƒôä File: $entityName');
             
             // Skip hidden files
             if (entityName.startsWith('.')) {
-              log.d('    ⏭️  Skipping hidden file');
+              log.d('    ΓÅ¡∩╕Å  Skipping hidden file');
               continue;
             }
             
@@ -1583,18 +1481,18 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
                   category: _getCategoryFromExtension(ext),
                 );
                 docs.add(doc);
-                log.i('    ✓ Added: $entityName (${doc.displaySize})');
+                log.i('    Γ£ô Added: $entityName (${doc.displaySize})');
               } catch (e) {
-                log.w('    ⚠️  Could not stat: $e');
+                log.w('    ΓÜá∩╕Å  Could not stat: $e');
               }
             } else {
-              log.d('    ⏭️  Skipped (ext: $ext)');
+              log.d('    ΓÅ¡∩╕Å  Skipped (ext: $ext)');
             }
           } else if (entity is Directory) {
-            log.d('  📁 Directory: $entityName');
+            log.d('  ≡ƒôü Directory: $entityName');
             
             if (currentDepth >= maxDepth) {
-              log.d('    ⏭️  Max depth reached');
+              log.d('    ΓÅ¡∩╕Å  Max depth reached');
               continue;
             }
             
@@ -1602,7 +1500,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
             if (entityName.startsWith('.') || 
                 entityName.startsWith('__') ||
                 {'cache', 'tmp', 'temp'}.contains(entityName.toLowerCase())) {
-              log.d('    ⏭️  System directory');
+              log.d('    ΓÅ¡∩╕Å  System directory');
               continue;
             }
             
@@ -1614,101 +1512,64 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
               maxDepth: maxDepth,
             );
           } else {
-            log.d('  ❓ Other type: ${entity.runtimeType} - $entityName');
+            log.d('  Γ¥ô Other type: ${entity.runtimeType} - $entityName');
           }
         } catch (e) {
-          log.w('  ⚠️  Error: $e');
+          log.w('  ΓÜá∩╕Å  Error: $e');
         }
       }
     } catch (e) {
-      log.w('⚠️  Error scanning ${dir.path}: $e');
+      log.w('ΓÜá∩╕Å  Error scanning ${dir.path}: $e');
     }
   }
 
   Future<void> _pickFilesManually() async {
-    log.i('📂 Opening file picker...');
+    log.i('Opening file picker...');
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: [
-          'pdf',
-          'doc',
-          'docx',
-          'odt',
-          'rtf',
-          'txt',
-          'xlsx',
-          'xls',
-          'ods',
-          'csv',
-          'ppt',
-          'pptx',
-          'odp',
-          'java',
-          'py',
-          'sh',
-          'html',
-          'md',
-          'epub',
-          'ott',
-          'log',
-          'json',
-          'xml',
-          'fadrec',
-          'ico',
-          'psd',
-          'atom',
-          'svg',
-          'dart',
-          'kt',
-          'kts',
-          'js',
-          'ts',
-          'jsx',
-          'tsx',
-          'c',
-          'cpp',
-          'h',
-          'hpp',
-          'cs',
-          'php',
-          'rb',
-          'swift',
-          'go',
-          'rs',
-          'sql',
-          'yaml',
-          'yml',
-          'toml',
-          'gradle',
-          'properties',
-          'ini',
-          'conf',
-          'bat',
-          'cmd',
-          'ps1',
-          'r',
-          'aac', 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'wma', 'opus', 'aiff',
-          'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'm4v', 'mpg', 'mpeg', 'fmp4',
-        ],
+        allowedExtensions: SupportedFormats.pickerExtensions,
         allowMultiple: true,
+        withData: true,
       );
 
       if (result != null && result.files.isNotEmpty) {
-        setState(() {
-          for (final file in result.files) {
-            if (file.path != null) {
+        final tempDir = await getTemporaryDirectory();
+        var added = 0;
+        for (final file in result.files) {
+          try {
+            if (file.path != null && file.path!.isNotEmpty) {
               _selectedFilePaths.add(file.path!);
-              log.d('  ✓ Selected: ${file.name}');
+              added++;
+              log.d('Selected: ${file.name}');
+              continue;
             }
+            // Some Android 8–10 OEMs return SAF picks with null path — write bytes.
+            if (file.bytes != null && file.bytes!.isNotEmpty) {
+              final safeName = file.name.isNotEmpty
+                  ? file.name
+                  : 'picked_${DateTime.now().millisecondsSinceEpoch}';
+              final out = File(
+                '${tempDir.path}${Platform.pathSeparator}$safeName',
+              );
+              await out.writeAsBytes(file.bytes!, flush: true);
+              _selectedFilePaths.add(out.path);
+              added++;
+              log.d('Selected via bytes: $safeName');
+            } else {
+              log.w('Skipped picker file with no path/bytes: ${file.name}');
+            }
+          } catch (e) {
+            log.w('Failed to add picker file ${file.name}: $e');
           }
-        });
-        log.i('✅ Added ${result.files.length} files via file picker');
+        }
+        if (mounted) setState(() {});
+        log.i('Added $added files via file picker');
       } else {
-        log.i('ℹ️  File picker cancelled by user');
+        log.i('File picker cancelled by user');
       }
     } catch (e) {
-      log.e('❌ Error picking files: $e');
+      log.e('Error picking files: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.browseErrorPrefix(e.toString()))),
@@ -1777,11 +1638,11 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
 
   Future<void> _importSelectedFiles() async {
     if (_selectedFilePaths.isEmpty) {
-      log.w('⚠️  Import called but no files selected');
+      log.w('ΓÜá∩╕Å  Import called but no files selected');
       return;
     }
 
-    log.i('📥 Starting import of ${_selectedFilePaths.length} file(s)...');
+    log.i('≡ƒôÑ Starting import of ${_selectedFilePaths.length} file(s)...');
 
     try {
       final mutator = ref.read(recentFilesMutatorProvider);
@@ -1800,7 +1661,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
           try {
             fileSizeBytes = await cachedFile.length();
           } catch (e) {
-            log.w('⚠️  Could not calculate file size for $fileName: $e');
+            log.w('ΓÜá∩╕Å  Could not calculate file size for $fileName: $e');
           }
 
           final recentFile = RecentFile(
@@ -1818,22 +1679,22 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
 
           await mutator.addRecentFile(recentFile);
           imported++;
-          log.d('  ✓ Imported and cached: $fileName to ${cachedFile.path}');
+          log.d('  Γ£ô Imported and cached: $fileName to ${cachedFile.path}');
         } catch (e) {
-          log.e('  ❌ Failed to import file: $e', error: e);
+          log.e('  Γ¥î Failed to import file: $e', error: e);
         }
       }
 
       if (mounted) {
         final message = AppLocalizations.of(context)!.browseImportedFiles(imported);
-        log.i('✅ $message');
+        log.i('Γ£à $message');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
         context.pop();
       }
     } catch (e) {
-      log.e('❌ Error importing files: $e', error: e);
+      log.e('Γ¥î Error importing files: $e', error: e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.browseErrorPrefix(e.toString()))),
@@ -1932,3 +1793,4 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
     );
   }
 }
+

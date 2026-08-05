@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fadocx/config/routing/app_router.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Bottom navigation dock
 class BottomNavDock extends StatelessWidget {

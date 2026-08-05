@@ -3,11 +3,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fadocx/core/presentation/widgets/connected_sheet_group.dart';
-import 'package:fadocx/core/presentation/widgets/floating_dock_scaffold.dart';
-import 'package:fadocx/features/settings/domain/entities/app_settings.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/config/routing/app_router.dart';
+import 'package:air_docs_viewer/core/presentation/layout/shell_layout.dart';
+import 'package:air_docs_viewer/core/presentation/widgets/connected_sheet_group.dart';
+import 'package:air_docs_viewer/core/presentation/widgets/floating_dock_scaffold.dart';
+import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
 import 'package:logger/logger.dart';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
@@ -15,10 +16,10 @@ import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:fadocx/features/home/presentation/providers/thumbnail_provider.dart';
-import 'package:fadocx/features/home/presentation/widgets/file_action_bottom_sheet.dart';
-import 'package:fadocx/core/services/storage_service.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/home/presentation/providers/thumbnail_provider.dart';
+import 'package:air_docs_viewer/features/home/presentation/widgets/file_action_bottom_sheet.dart';
+import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 final log = Logger();
 
@@ -119,6 +120,7 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
     return FloatingDockScaffold(
       appBarContent: _buildAppBarContent(context),
       currentRoute: RouteNames.documents,
+      tabCount: 2,
       body: _buildBody(),
     );
   }
@@ -444,9 +446,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
     final categoryCounts = _buildCategoryCounts(allFiles);
     final sortedCategories = _getSortedCategories(categoryCounts);
 
-    // Add top padding to account for AppBar (40px) + status bar
-    final mediaQuery = MediaQuery.of(context);
-    final topPadding = 40.0 + mediaQuery.padding.top;
+    final topPadding = ShellLayout.topContentInset(context);
+    final bottomPadding =
+        ShellLayout.bottomContentInset(context, includeFooter: true);
 
     return Column(
       children: [
@@ -722,7 +724,7 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
                     ? CustomScrollView(
                         slivers: [
                           SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                             sliver: SliverGrid(
                               gridDelegate:
                                   const SliverGridDelegateWithFixedCrossAxisCount(
@@ -738,12 +740,15 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
                               ),
                             ),
                           ),
+                          SliverToBoxAdapter(
+                            child: SizedBox(height: bottomPadding),
+                          ),
                         ],
                       )
                     : CustomScrollView(
                         slivers: [
                           SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                             sliver: SliverList(
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) => _buildFileListItem(
@@ -751,6 +756,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
                                 childCount: filteredFiles.length,
                               ),
                             ),
+                          ),
+                          SliverToBoxAdapter(
+                            child: SizedBox(height: bottomPadding),
                           ),
                         ],
                       ),
@@ -1581,20 +1589,6 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
         onCopyText: file.extractedText != null && file.extractedText!.isNotEmpty
             ? () => _copyExtractedText(file)
             : null,
-        onConvert: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text(AppLocalizations.of(context)!.homeConvertComingSoon)),
-          );
-        },
-        onUpload: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text(AppLocalizations.of(context)!.homeFadDriveComingSoon)),
-          );
-        },
         onFileInfo: () => _showFileInfoDialog(context, file),
         onDelete: () => _softDeleteFile(file),
       ),
@@ -1776,17 +1770,17 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
     );
   }
 
-  Future<Directory> _getFadocxDownloadsDir() async {
+  Future<Directory> _getAirDocsViewerDownloadsDir() async {
     final dir = await getDownloadsDirectory();
     if (dir == null) {
       throw UnsupportedError('Downloads directory not available');
     }
-    return Directory('${dir.path}/Fadocx');
+    return Directory('${dir.path}/AirDocsViewer');
   }
 
   Future<void> _saveToDownloads(RecentFile file) async {
     try {
-      final downloadsDir = await _getFadocxDownloadsDir();
+      final downloadsDir = await _getAirDocsViewerDownloadsDir();
       if (!await downloadsDir.exists()) {
         await downloadsDir.create(recursive: true);
       }

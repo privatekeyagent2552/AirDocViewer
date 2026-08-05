@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fadocx/config/routing/app_router.dart';
-import 'package:fadocx/config/theme/app_theme.dart';
-import 'package:fadocx/core/presentation/widgets/floating_dock_scaffold.dart';
-import 'package:fadocx/features/settings/domain/entities/app_settings.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
+import 'package:air_docs_viewer/config/theme/app_theme.dart';
+import 'package:air_docs_viewer/core/presentation/widgets/floating_dock_scaffold.dart';
+import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'package:logger/logger.dart';
 
 final log = Logger();

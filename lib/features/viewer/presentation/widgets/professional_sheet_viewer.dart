@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:fadocx/features/viewer/domain/entities/sheet_entity.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Professional Spreadsheet Viewer — virtualized for 50k+ rows.
 class ProfessionalSheetViewer extends StatefulWidget {
@@ -313,9 +313,9 @@ class _ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
     final chh = _colHdrH;
     final totalW = _totalW;
 
-    // Font size scales with zoom
-    final fontSize = (12.0 * _zoom).clamp(4.0, 24.0); // Min 4px at 10% zoom
-    final hdrFontSize = (11.0 * _zoom).clamp(4.0, 20.0);
+    // Font size scales with zoom — larger baseline for readability
+    final fontSize = (15.0 * _zoom).clamp(8.0, 28.0);
+    final hdrFontSize = (13.0 * _zoom).clamp(8.0, 24.0);
 
     return Column(
       children: [
@@ -725,45 +725,23 @@ class _ThemeColors {
   });
 
   factory _ThemeColors.of(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-
-    if (dark) {
-      return const _ThemeColors(
-        header: Color(0xFF2D2D2D),
-        headerText: Color(0xFFE0E0E0),
-        evenRow: Color(0xFF141414),
-        oddRow: Color(0xFF1C1C1C),
-        primaryText: Color(0xFFE0E0E0),
-        secondaryText: Color(0xFF999999),
-        border: Color(0xFF393939),
-        statusBar: Color(0xFF242424),
-        toolbar: Color(0xFF1A1A1A),
-        toolbarText: Color(0xFFD0D0D0),
-        toolbarIcon: Color(0xFFB0B0B0),
-        toolbarBtnBg: Color(0xFF2D2D2D),
-        selCellBg: Color(0xFF3D5A6A),
-        selCellFg: Color(0xFFFFFFFF),
-        selRowBg: Color(0xFF2D4A5A),
-        highlightText: Color(0xFFF5F5F5),
-      );
-    }
-
+    // Spreadsheets always use a light Excel-like surface for readability.
     return const _ThemeColors(
-      header: Color(0xFFD4D4D4),
+      header: Color(0xFFE8E8E8),
       headerText: Color(0xFF333333),
       evenRow: Color(0xFFFFFFFF),
-      oddRow: Color(0xFFF5F5F5),
-      primaryText: Color(0xFF333333),
-      secondaryText: Color(0xFF777777),
-      border: Color(0xFFCCCCCC),
+      oddRow: Color(0xFFF7F7F7),
+      primaryText: Color(0xFF222222),
+      secondaryText: Color(0xFF666666),
+      border: Color(0xFFD0D0D0),
       statusBar: Color(0xFFF5F5F5),
-      toolbar: Color(0xFFF2F2F2),
-      toolbarText: Color(0xFF444444),
-      toolbarIcon: Color(0xFF666666),
+      toolbar: Color(0xFFF0F0F0),
+      toolbarText: Color(0xFF333333),
+      toolbarIcon: Color(0xFF555555),
       toolbarBtnBg: Color(0xFFE0E0E0),
-      selCellBg: Color(0xFFC8C8C8),
+      selCellBg: Color(0xFFC5D9F1),
       selCellFg: Color(0xFF111111),
-      selRowBg: Color(0xFFE0E0E0),
+      selRowBg: Color(0xFFE8F0FE),
       highlightText: Color(0xFF111111),
     );
   }

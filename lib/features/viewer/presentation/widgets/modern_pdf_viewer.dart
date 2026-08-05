@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 class _SearchResult {
   final int page;
@@ -30,6 +30,7 @@ class ModernPdfViewer extends StatefulWidget {
   final Function(int currentPage, int totalPages)? onPageChanged;
   final VoidCallback? onSearchHighlight;
   final Function(int wordCount, int lineCount)? onTextStatsChanged;
+  final ValueChanged<double>? onZoomChanged;
   final int? initialWordCount;
   final int? initialLineCount;
 
@@ -44,6 +45,7 @@ class ModernPdfViewer extends StatefulWidget {
     this.onPageChanged,
     this.onSearchHighlight,
     this.onTextStatsChanged,
+    this.onZoomChanged,
     this.initialWordCount,
     this.initialLineCount,
     super.key,
@@ -107,6 +109,8 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
   int get currentPage => _currentPage;
   int get totalPages => _totalPages;
   bool get showSidebar => _showSidebar;
+  double get currentZoom =>
+      _isControllerReady && !widget.textMode ? _controller.currentZoom : 1.0;
   bool get _hasCachedTextStats =>
       (widget.initialWordCount ?? 0) > 0 && (widget.initialLineCount ?? 0) > 0;
 
@@ -120,10 +124,17 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
     _textModePageController = PageController(initialPage: 0);
     _textModePageController.addListener(_onPageChanged);
     _pagesScrollController = ScrollController();
+    _controller.addListener(_notifyZoomChanged);
+  }
+
+  void _notifyZoomChanged() {
+    if (!_isControllerReady || widget.textMode) return;
+    widget.onZoomChanged?.call(_controller.currentZoom);
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_notifyZoomChanged);
     _searchController.dispose();
     _highlightController.dispose();
     _textModePageController.dispose();
@@ -259,20 +270,6 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
                             showBadge: _outlineNodes != null &&
                                 _outlineNodes!.isNotEmpty,
                           ),
-                          _buildSidebarTab(
-                            context,
-                            l10n.viewerSidebarNotes,
-                            Icons.note,
-                            3,
-                            comingSoon: true,
-                          ),
-                          _buildSidebarTab(
-                            context,
-                            l10n.viewerSidebarBookmarks,
-                            Icons.bookmark,
-                            4,
-                            comingSoon: true,
-                          ),
                         ],
                       ),
                     ),
@@ -286,13 +283,7 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
                   ? _buildPagesTab()
                   : _sidebarTab == 1
                       ? _buildSearchTab()
-                      : _sidebarTab == 2
-                          ? _buildTocTab()
-                          : _sidebarTab == 3
-                              ? _buildComingSoonTab(l10n.viewerSidebarNotes,
-                                  l10n.viewerSidebarNotesDesc)
-                              : _buildComingSoonTab(l10n.viewerSidebarBookmarks,
-                                  l10n.viewerSidebarBookmarksDesc),
+                      : _buildTocTab(),
             ),
           ],
         );
@@ -364,6 +355,26 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
 
   void toggleSidebar() {
     setState(() => _showSidebar = !_showSidebar);
+  }
+
+  void zoomIn() {
+    if (!_isControllerReady || widget.textMode) return;
+    _controller.zoomUp().ignore();
+  }
+
+  void zoomOut() {
+    if (!_isControllerReady || widget.textMode) return;
+    _controller.zoomDown().ignore();
+  }
+
+  void fitToWidth() {
+    if (!_isControllerReady || widget.textMode) return;
+    final matrix = _controller.calcMatrixFitWidthForPage(
+      pageNumber: _currentPage.clamp(1, _totalPages),
+    );
+    if (matrix != null) {
+      _controller.goTo(matrix).ignore();
+    }
   }
 
   Future<Map<String, dynamic>> extractAllText(
@@ -1095,6 +1106,9 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
           log.i(
               'Document ready: $_totalPages pages - ${_hasCachedTextStats ? 'using cached text stats' : 'starting comprehensive text extraction'}');
           widget.onPageChanged?.call(_currentPage, _totalPages);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _notifyZoomChanged();
+          });
 
           if (!_hasCachedTextStats) {
             // Extract all page texts systematically with proper rendering.
@@ -1910,62 +1924,6 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
     );
   }
 
-  Widget _buildComingSoonTab(String title, String description) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.schedule,
-                size: 32,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$title - Coming Soon',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'This feature is under development and will be available in a future update.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .outline
-                        .withValues(alpha: 0.7),
-                  ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ignore: unused_element
   Widget _buildBottomDock() {
     return SafeArea(
@@ -2060,7 +2018,6 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
     String label,
     IconData icon,
     int index, {
-    bool comingSoon = false,
     String? badgeText,
     bool showBadge = false,
   }) {
@@ -2102,27 +2059,17 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
                       Icon(
                         icon,
                         size: 18,
-                        color: comingSoon
-                            ? Theme.of(context)
-                                .colorScheme
-                                .outline
-                                .withValues(alpha: 0.4)
-                            : isActive
-                                ? Theme.of(context).colorScheme.primary
-                                : Theme.of(context).colorScheme.outline,
+                        color: isActive
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.outline,
                       ),
                       Text(
                         label,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               fontSize: 10,
-                              color: comingSoon
-                                  ? Theme.of(context)
-                                      .colorScheme
-                                      .outline
-                                      .withValues(alpha: 0.4)
-                                  : isActive
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Theme.of(context).colorScheme.outline,
+                              color: isActive
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outline,
                               fontWeight:
                                   isActive ? FontWeight.w600 : FontWeight.w500,
                             ),
@@ -2140,9 +2087,7 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                   decoration: BoxDecoration(
-                    color: comingSoon
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.secondary,
+                    color: Theme.of(context).colorScheme.secondary,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -2150,27 +2095,8 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           fontSize: 8,
                           fontWeight: FontWeight.w700,
-                          color: comingSoon
-                              ? Theme.of(context).colorScheme.onPrimary
-                              : Theme.of(context).colorScheme.onSecondary,
+                          color: Theme.of(context).colorScheme.onSecondary,
                         ),
-                  ),
-                ),
-              ),
-            if (comingSoon && !showBadge)
-              Positioned(
-                right: 2,
-                top: 2,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.schedule,
-                    size: 8,
-                    color: Theme.of(context).colorScheme.onPrimary,
                   ),
                 ),
               ),

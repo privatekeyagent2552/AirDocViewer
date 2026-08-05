@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Info-only viewer for audio files.
 /// Shows file metadata and a placeholder — full playback requires audio lib.

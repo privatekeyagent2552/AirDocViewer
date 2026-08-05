@@ -4,14 +4,14 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fadocx/features/viewer/data/services/word_document_parser_service.dart';
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/word_document_parser_service.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 
 void main() {
   group('WordDocumentParserService', () {
     test('parseDocx preserves paragraphs and tables', () async {
       final directory =
-          await Directory.systemTemp.createTemp('fadocx_docx_test');
+          await Directory.systemTemp.createTemp('air_docs_viewer_docx_test');
       final file = File('${directory.path}/sample.docx');
       final archive = Archive()
         ..addFile(
@@ -56,10 +56,10 @@ void main() {
 
     test('parseRtf preserves paragraphs and inline formatting', () async {
       final directory =
-          await Directory.systemTemp.createTemp('fadocx_rtf_test');
+          await Directory.systemTemp.createTemp('air_docs_viewer_rtf_test');
       final file = File('${directory.path}/sample.rtf');
       await file.writeAsString(
-        r'{\rtf1\ansi Plain \b Bold\b0\par Second\tabLine\par}',
+        r'{\rtf1\ansi Plain \b Bold\b0\par Second\tab Line\par}',
       );
 
       addTearDown(() async {

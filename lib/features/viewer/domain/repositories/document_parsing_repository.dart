@@ -33,8 +33,11 @@ abstract class DocumentParsingRepository {
   /// Parse XML file
   Future<ParsedDocumentEntity> parseXML(String filePath);
 
-  /// Parse DOCX file
+  /// Parse DOCX file (visual stub — WebView renders layout)
   Future<ParsedDocumentEntity> parseDOCX(String filePath);
+
+  /// Structured DOCX fallback when WebView render fails
+  Future<ParsedDocumentEntity> parseDOCXStructured(String filePath);
 
   /// Parse DOC file (legacy Word format)
   Future<ParsedDocumentEntity> parseDOC(String filePath);
@@ -47,6 +50,24 @@ abstract class DocumentParsingRepository {
 
   /// Parse ODT file (OpenDocument Text)
   Future<ParsedDocumentEntity> parseODT(String filePath);
+
+  /// Parse OTT file (OpenDocument Text Template)
+  Future<ParsedDocumentEntity> parseOTT(String filePath);
+
+  /// Parse ODP file (OpenDocument Presentation) as extracted text
+  Future<ParsedDocumentEntity> parseODP(String filePath);
+
+  /// Parse PPTX file (visual stub — WebView renders slides)
+  Future<ParsedDocumentEntity> parsePPTX(String filePath);
+
+  /// Structured PPTX fallback when WebView render fails
+  Future<ParsedDocumentEntity> parsePPTXStructured(String filePath);
+
+  /// Parse PPT file (legacy PowerPoint) as extracted text
+  Future<ParsedDocumentEntity> parsePPT(String filePath);
+
+  /// Parse EPUB file (e-book) as extracted text
+  Future<ParsedDocumentEntity> parseEPUB(String filePath);
 
   /// Get cached parsing result if available and file unchanged
   ///

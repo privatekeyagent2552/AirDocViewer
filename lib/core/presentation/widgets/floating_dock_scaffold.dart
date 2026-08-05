@@ -2,8 +2,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fadocx/config/routing/app_router.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/config/routing/app_router.dart';
+import 'package:air_docs_viewer/core/presentation/layout/shell_layout.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Floating overlay scaffold that places app bar and bottom dock as transparent
 /// overlays, allowing content to scroll behind them like iOS/macOS style.
@@ -13,10 +14,14 @@ class FloatingDockScaffold extends StatefulWidget {
   final bool showBottomDock;
   final Widget? appBarContent;
   final Widget? floatingActionButton;
+  final Widget? footerContent;
 
   /// When set, dock navigates pages instead of GoRouter routes.
   final int? activeTabIndex;
   final ValueChanged<int>? onTabChanged;
+
+  /// Number of tabs shown in the bottom dock (2 = Home + Library only).
+  final int tabCount;
 
   const FloatingDockScaffold({
     super.key,
@@ -25,8 +30,10 @@ class FloatingDockScaffold extends StatefulWidget {
     this.showBottomDock = true,
     this.appBarContent,
     this.floatingActionButton,
+    this.footerContent,
     this.activeTabIndex,
     this.onTabChanged,
+    this.tabCount = 3,
   });
 
   @override
@@ -37,10 +44,14 @@ class _FloatingDockScaffoldState extends State<FloatingDockScaffold> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final topSafePadding = mediaQuery.padding.top;
     final bottomSafePadding = mediaQuery.padding.bottom;
-    final appBarHeight = widget.appBarContent != null ? 40.0 : 0.0;
-    final dockHeight = widget.showBottomDock ? 72.0 : 0.0;
+    final dockHeight = widget.showBottomDock
+        ? ShellLayout.dockBarHeight +
+            ShellLayout.dockBottomPadding +
+            (widget.footerContent != null
+                ? ShellLayout.footerBandHeight + ShellLayout.footerGapBelowDock
+                : 0.0)
+        : 0.0;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusBarStyle = SystemUiOverlayStyle(
@@ -68,10 +79,9 @@ class _FloatingDockScaffoldState extends State<FloatingDockScaffold> {
                 top: 0,
                 left: 0,
                 right: 0,
-                height: appBarHeight + topSafePadding,
+                height: ShellLayout.overlayTopHeight(context),
                 child: _FloatingAppBar(
                   content: widget.appBarContent!,
-                  topPadding: topSafePadding,
                 ),
               ),
 
@@ -82,7 +92,7 @@ class _FloatingDockScaffoldState extends State<FloatingDockScaffold> {
                 bottom: 0,
                 left: 0,
                 right: 0,
-                height: 60, // Height covers dock area and provides a smooth fade
+                height: dockHeight + bottomSafePadding + 12,
                 child: IgnorePointer(
                   child: Container(
                     decoration: BoxDecoration(
@@ -101,14 +111,14 @@ class _FloatingDockScaffoldState extends State<FloatingDockScaffold> {
                               .withValues(alpha: 0.95),
                           Theme.of(context).colorScheme.surface,
                         ],
-                        stops: const [0.0, 0.4, 0.8, 1.0],
+                        stops: const [0.0, 0.35, 0.75, 1.0],
                       ),
                     ),
                   ),
                 ),
               ),
 
-            // Floating bottom dock — shadow on outer container, content clipped inside
+            // Floating bottom dock + optional developer credit under the pill
             if (widget.showBottomDock)
               Positioned(
                 bottom: 0,
@@ -120,6 +130,8 @@ class _FloatingDockScaffoldState extends State<FloatingDockScaffold> {
                     currentRoute: widget.currentRoute,
                     activeTabIndex: widget.activeTabIndex,
                     onTabChanged: widget.onTabChanged,
+                    tabCount: widget.tabCount,
+                    footer: widget.footerContent,
                   ),
                 ),
               ),
@@ -141,11 +153,9 @@ class _FloatingDockScaffoldState extends State<FloatingDockScaffold> {
 /// Floating app bar with blur background
 class _FloatingAppBar extends StatelessWidget {
   final Widget content;
-  final double topPadding;
 
   const _FloatingAppBar({
     required this.content,
-    required this.topPadding,
   });
 
   @override
@@ -210,7 +220,7 @@ class _FloatingAppBar extends StatelessWidget {
               child: SafeArea(
                 bottom: false,
                 child: SizedBox(
-                  height: 40,
+                  height: ShellLayout.appBarContentHeight,
                   child: Center(child: content),
                 ),
               ),
@@ -228,12 +238,16 @@ class _FloatingDock extends StatelessWidget {
   final String currentRoute;
   final int? activeTabIndex;
   final ValueChanged<int>? onTabChanged;
+  final int tabCount;
+  final Widget? footer;
 
   const _FloatingDock({
     required this.bottomPadding,
     required this.currentRoute,
     this.activeTabIndex,
     this.onTabChanged,
+    this.tabCount = 3,
+    this.footer,
   });
 
   bool _isActive(int tabIndex) {
@@ -254,9 +268,13 @@ class _FloatingDock extends StatelessWidget {
         case 0:
           if (currentRoute != RouteNames.home) context.go(RouteNames.home);
         case 1:
-          if (currentRoute != RouteNames.documents) context.push(RouteNames.documents);
+          if (currentRoute != RouteNames.documents) {
+            context.push(RouteNames.documents);
+          }
         case 2:
-          if (currentRoute != RouteNames.settings) context.push(RouteNames.settings);
+          if (currentRoute != RouteNames.settings) {
+            context.push(RouteNames.settings);
+          }
       }
     }
   }
@@ -268,79 +286,91 @@ class _FloatingDock extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: isDark
-                    ? Colors.black.withValues(alpha: 0.45)
-                    : Colors.black.withValues(alpha: 0.12),
-                blurRadius: 24,
-                spreadRadius: -2,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surface
-                      .withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .outline
-                        .withValues(alpha: 0.2),
-                    width: 1,
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? Colors.black.withValues(alpha: 0.45)
+                        : Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 24,
+                    spreadRadius: -2,
+                    offset: const Offset(0, 8),
                   ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                  child: SizedBox(
-                    height: 48,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        Expanded(
-                          child: _DockItem(
-                            icon: Icons.home,
-                            label: AppLocalizations.of(context)!.navHome,
-                            isActive: _isActive(0),
-                            onTap: () => _onTap(0, context),
-                          ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surface
+                          .withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outline
+                            .withValues(alpha: 0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 14),
+                      child: SizedBox(
+                        height: 64,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          mainAxisSize: MainAxisSize.max,
+                          children: [
+                            Expanded(
+                              child: _DockItem(
+                                icon: Icons.home,
+                                label: AppLocalizations.of(context)!.navHome,
+                                isActive: _isActive(0),
+                                onTap: () => _onTap(0, context),
+                              ),
+                            ),
+                            Expanded(
+                              child: _DockItem(
+                                icon: Icons.auto_stories,
+                                label: AppLocalizations.of(context)!.navLibrary,
+                                isActive: _isActive(1),
+                                onTap: () => _onTap(1, context),
+                              ),
+                            ),
+                            if (tabCount > 2)
+                              Expanded(
+                                child: _DockItem(
+                                  icon: Icons.settings,
+                                  label:
+                                      AppLocalizations.of(context)!.navSettings,
+                                  isActive: _isActive(2),
+                                  onTap: () => _onTap(2, context),
+                                ),
+                              ),
+                          ],
                         ),
-                        Expanded(
-                          child: _DockItem(
-                            icon: Icons.auto_stories,
-                            label: AppLocalizations.of(context)!.navLibrary,
-                            isActive: _isActive(1),
-                            onTap: () => _onTap(1, context),
-                          ),
-                        ),
-                        Expanded(
-                          child: _DockItem(
-                            icon: Icons.settings,
-                            label: AppLocalizations.of(context)!.navSettings,
-                            isActive: _isActive(2),
-                            onTap: () => _onTap(2, context),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+            if (footer != null) ...[
+              SizedBox(height: ShellLayout.footerGapBelowDock),
+              footer!,
+            ],
+          ],
         ),
       ),
     );
@@ -405,12 +435,12 @@ class _DockItemState extends State<_DockItem>
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           child: AnimatedSize(
             duration: const Duration(milliseconds: 300),
             alignment: Alignment.topCenter,
@@ -420,15 +450,15 @@ class _DockItemState extends State<_DockItem>
               children: [
                 // Icon - always visible with opacity animation
                 SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: 28,
+                  height: 28,
                   child: Center(
                     child: AnimatedOpacity(
                       opacity: widget.isActive ? 1.0 : 0.55,
                       duration: const Duration(milliseconds: 300),
                       child: Icon(
                         widget.icon,
-                        size: 18,
+                        size: 28,
                         color: widget.isActive
                             ? Theme.of(context).colorScheme.secondary
                             : Theme.of(context)
@@ -440,20 +470,21 @@ class _DockItemState extends State<_DockItem>
                 ),
                 // Label - only rendered when active, fades in/out
                 if (widget.isActive) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   SizedBox(
-                    height: 16,
+                    height: 18,
                     child: FadeTransition(
                       opacity: _fadeAnimation,
                       child: Text(
                         widget.label,
                         maxLines: 1,
-                        overflow: TextOverflow.visible,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
                         style: Theme.of(context)
                             .textTheme
                             .labelSmall
                             ?.copyWith(
-                              fontSize: 9,
+                              fontSize: 12,
                               color: Theme.of(context)
                                   .colorScheme
                                   .secondary,

@@ -1,26 +1,29 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fadocx/config/theme/theme_provider.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
-import 'package:fadocx/features/viewer/data/providers/repository_providers.dart';
-import 'package:fadocx/features/viewer/domain/entities/parsed_document_entity.dart';
-import 'package:fadocx/features/viewer/presentation/widgets/text_document_viewer.dart';
-import 'package:fadocx/features/viewer/presentation/widgets/modern_pdf_viewer.dart';
-import 'package:fadocx/features/viewer/presentation/widgets/media_viewer.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/viewer/data/providers/repository_providers.dart';
+import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/text_document_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/office_visual_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/rich_structured_document_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/modern_pdf_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/media_viewer.dart';
 import 'package:video_player/video_player.dart';
-import 'package:fadocx/features/viewer/presentation/widgets/document_viewer_factory.dart';
-import 'package:fadocx/features/viewer/presentation/widgets/lokit_document_viewer.dart';
-import 'package:fadocx/features/viewer/presentation/providers/lokit_viewer_notifier.dart';
-import 'package:fadocx/features/viewer/data/services/lokit_service.dart';
-import 'package:fadocx/features/viewer/presentation/providers/document_viewer_notifier.dart';
-import 'package:fadocx/features/home/presentation/widgets/home_drawer.dart';
-import 'package:fadocx/features/home/presentation/providers/thumbnail_provider.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/core/services/thumbnail_generation_service.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/document_viewer_factory.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/image_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/viewer_zoom_toolbar.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/providers/document_viewer_notifier.dart';
+import 'package:air_docs_viewer/features/home/presentation/widgets/home_drawer.dart';
+import 'package:air_docs_viewer/features/home/presentation/providers/thumbnail_provider.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/core/services/thumbnail_generation_service.dart';
 
 class ViewerScreen extends ConsumerStatefulWidget {
   final String filePath;
@@ -59,13 +62,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   bool _textMode = false;
   bool _bottomMenuExpanded = false;
   bool _sidebarOpen = false;
-  double _lokitZoom = 1.0;
   int _currentPage = 1;
   int _totalPages = 0;
   int? _documentWordCount;
   int? _documentLineCount;
   double _sidebarDragOffset = 0.0;
-  double _textFontSize = 14;
+  double _textFontSize = 18;
   bool _textWordWrap = true;
   bool _textFontIsMonoFont = false;
   bool _syntaxHighlightEnabled = true;
@@ -76,6 +78,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   late AnimationController _sidebarController;
   // Sheet selection state for bottom panel display
   double _sheetZoom = 1.0;
+  double _pdfZoom = 1.0;
+  double _imageZoom = 1.0;
   String? _sheetCellRef;
   String _sheetCellValue = '';
   bool _mediaWasPlaying = false;
@@ -84,39 +88,58 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   late AnimationController _topBarController;
   late AnimationController _bottomPanelController;
   late GlobalKey<State<ModernPdfViewer>> _pdfViewerKey;
+  late GlobalKey<ImageViewerState> _imageViewerKey;
   late GlobalKey<State<TextDocumentViewer>> _textViewerKey;
-  late GlobalKey<State<LOKitDocumentViewer>> _lokitViewerKey;
+  late GlobalKey<RichStructuredDocumentViewerState> _structuredViewerKey;
   late GlobalKey<MediaViewerState> _mediaViewerKey;
   late GlobalKey _sheetViewerKey;
   static const double _kDragCloseThreshold = 100.0;
 
+  /// Path of a document whose rich WebView render failed; falls back to structured/text.
+  String? _richFailedForPath;
+
   bool _isPdfDocument() {
-    final doc = ref.read(documentViewerProvider).document;
-    return doc?.format.toUpperCase() == 'PDF';
+    final ext = SupportedFormats.extensionOf(widget.filePath) ??
+        SupportedFormats.extensionOf(widget.fileName) ??
+        '';
+    return SupportedFormats.viewerKindOf(ext) == ViewerKind.pdf;
   }
 
   bool _isSpreadsheet() {
-    final format =
-        ref.read(documentViewerProvider).document?.format.toUpperCase();
-    return format == 'XLS' ||
-        format == 'XLSX' ||
-        format == 'CSV' ||
-        format == 'ODS';
+    final ext = SupportedFormats.extensionOf(widget.filePath) ??
+        SupportedFormats.extensionOf(widget.fileName) ??
+        '';
+    return SupportedFormats.isSpreadsheet(ext);
+  }
+
+  /// Must match the actual floating top bar content height (52).
+  static const double _kTopBarContentHeight = 52.0;
+
+  /// Safe top inset that always clears the status bar / camera cutout, even in
+  /// immersive mode where the reported system inset can collapse to 0.
+  double _safeTopInset(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final inset = math.max(mq.viewPadding.top, mq.padding.top);
+    // Guarantee clearance for notches/punch-holes when immersive hides the bar.
+    return math.max(inset, 28.0);
   }
 
   double _topOverlayHeight(BuildContext context) =>
-      MediaQuery.viewPaddingOf(context).top + 40.0;
+      _safeTopInset(context) + _kTopBarContentHeight;
 
-  double _bottomOverlayHeight() {
+  double _bottomOverlayHeight(BuildContext context) {
     if (!_controlsVisible) return 0.0;
-    if (_isSpreadsheet()) return 76.0;
-    return 56.0;
+    final navInset = MediaQuery.viewPaddingOf(context).bottom;
+    final panel = _isSpreadsheet() ? 96.0 : 56.0;
+    return panel + navInset;
   }
 
   EdgeInsets _contentOverlayPadding(BuildContext context) {
     return EdgeInsets.only(
       top: _controlsVisible ? _topOverlayHeight(context) : 0.0,
-      bottom: _bottomPanelController.value > 0.3 ? _bottomOverlayHeight() : 0.0,
+      bottom: _bottomPanelController.value > 0.3
+          ? _bottomOverlayHeight(context)
+          : 0.0,
     );
   }
 
@@ -156,34 +179,38 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
   }
 
-  bool _isLOKitDocument() {
-    final format =
-        ref.read(documentViewerProvider).document?.format.toUpperCase();
-    return format == 'PPT' ||
-        format == 'PPTX' ||
-        format == 'ODP' ||
-        format == 'DOCX' ||
-        format == 'DOC' ||
-        format == 'RTF' ||
-        format == 'ODT';
+  /// Formats whose native representation is plain/code text, or office
+  /// formats that only have text/structured fallbacks (not DOCX/PPTX WebView).
+  bool _isTextLikeFormat(String format) {
+    final ext = format.toLowerCase();
+    final kind = SupportedFormats.viewerKindOf(ext);
+    return kind == ViewerKind.text ||
+        (kind == ViewerKind.structured &&
+            !_isRichWebActive(format));
+  }
+
+  bool _isRichWebActive(String format) {
+    final ext = format.toLowerCase();
+    return SupportedFormats.isRichWeb(ext) &&
+        _richFailedForPath != widget.filePath &&
+        !(ref.read(documentViewerProvider).usingFallback);
   }
 
   bool _isTextDocument() {
-    const txtFormats = {
-      'TXT',
-      'JAVA',
-      'PY',
-      'SH',
-      'HTML',
-      'MD',
-      'LOG',
-      'JSON',
-      'XML',
-      'FADREC'
-    };
     final format =
         ref.read(documentViewerProvider).document?.format.toUpperCase() ?? '';
-    return txtFormats.contains(format);
+    return _isTextLikeFormat(format);
+  }
+
+  bool _isStructuredRichDocument() {
+    final doc = ref.read(documentViewerProvider).document;
+    if (doc == null || !doc.hasRichDocument) return false;
+    final format = doc.format.toUpperCase();
+    if (_isRichWebActive(format)) return false;
+    final kind = SupportedFormats.viewerKindOf(format.toLowerCase());
+    return kind == ViewerKind.structured ||
+        kind == ViewerKind.richWeb ||
+        kind == ViewerKind.text;
   }
 
   bool _canOpenSidebar() {
@@ -191,8 +218,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (_isPdfDocument()) {
       return _pdfViewerKey.currentState != null;
     }
-    if (_isLOKitDocument()) {
-      return _lokitViewerKey.currentState != null;
+    if (_isStructuredRichDocument()) {
+      return _structuredViewerKey.currentState != null;
     }
     if (_isTextDocument()) {
       return _textViewerKey.currentState != null;
@@ -209,9 +236,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       final viewerState = _pdfViewerKey.currentState as dynamic;
       return viewerState?.buildDrawerContent(context) as Widget?;
     }
-    if (_isLOKitDocument()) {
-      final viewerState = _lokitViewerKey.currentState as dynamic;
-      return viewerState?.buildDrawerContent(context) as Widget?;
+    if (_isStructuredRichDocument()) {
+      return _structuredViewerKey.currentState?.buildDrawerContent(context);
     }
     if (_isTextDocument()) {
       final viewerState = _textViewerKey.currentState as dynamic;
@@ -229,7 +255,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final l10n = AppLocalizations.of(context)!;
 
     return Container(
-      width: 300,
+      width: double.infinity,
       padding: const EdgeInsets.all(8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -394,9 +420,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (_isPdfDocument()) {
       (_pdfViewerKey.currentState as dynamic)?.toggleSidebar();
     }
-    if (_isLOKitDocument()) {
-      (_lokitViewerKey.currentState as dynamic)?.toggleSidebar();
-    }
     setState(() {
       _sidebarOpen = !_sidebarOpen;
     });
@@ -436,33 +459,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void _goToFirstPage() {
     if (_isPdfDocument()) {
       (_pdfViewerKey.currentState as dynamic)?.goToFirstPage();
-    } else if (_isLOKitDocument()) {
-      (_lokitViewerKey.currentState as dynamic)?.goToFirstPage();
     }
   }
 
   void _goToPreviousPage() {
     if (_isPdfDocument()) {
       (_pdfViewerKey.currentState as dynamic)?.goToPreviousPage();
-    } else if (_isLOKitDocument()) {
-      (_lokitViewerKey.currentState as dynamic)?.goToPreviousPage();
     }
   }
 
   void _goToNextPage() {
     if (_isPdfDocument()) {
       (_pdfViewerKey.currentState as dynamic)?.goToNextPage();
-    } else if (_isLOKitDocument()) {
-      (_lokitViewerKey.currentState as dynamic)?.goToNextPage();
     }
   }
 
   void _closeSidebar() {
     if (_isPdfDocument()) {
       (_pdfViewerKey.currentState as dynamic)?.toggleSidebar();
-    }
-    if (_isLOKitDocument()) {
-      (_lokitViewerKey.currentState as dynamic)?.toggleSidebar();
     }
     setState(() => _sidebarOpen = false);
     _sidebarController.reverse();
@@ -495,8 +509,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void _goToLastPage() {
     if (_isPdfDocument()) {
       (_pdfViewerKey.currentState as dynamic)?.goToLastPage();
-    } else if (_isLOKitDocument()) {
-      (_lokitViewerKey.currentState as dynamic)?.goToLastPage();
     }
   }
 
@@ -527,8 +539,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               if (pageNum != null && pageNum >= 1 && pageNum <= _totalPages) {
                 if (_isPdfDocument()) {
                   (_pdfViewerKey.currentState as dynamic)?.goToPage(pageNum);
-                } else if (_isLOKitDocument()) {
-                  (_lokitViewerKey.currentState as dynamic)?.goToPage(pageNum);
                 }
                 Navigator.pop(context);
               } else {
@@ -550,8 +560,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void initState() {
     super.initState();
     _pdfViewerKey = GlobalKey<State<ModernPdfViewer>>();
+    _imageViewerKey = GlobalKey<ImageViewerState>();
     _textViewerKey = GlobalKey<State<TextDocumentViewer>>();
-    _lokitViewerKey = GlobalKey<State<LOKitDocumentViewer>>();
+    _structuredViewerKey = GlobalKey<RichStructuredDocumentViewerState>();
     _mediaViewerKey = GlobalKey<MediaViewerState>();
     _sheetViewerKey = GlobalKey();
     _menuController = AnimationController(
@@ -580,45 +591,53 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     // Start in immersive mode by default for better UX
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    // Load document if not already loaded
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    // Start document load immediately (don't wait for first frame).
+    Future.microtask(() async {
+      if (!mounted) return;
       final docState = ref.read(documentViewerProvider);
-      _log.d('initState: loading=, hasDoc=, hasError=');
+      final loadedPath = docState.document?.sourceFilePath;
+      final needsLoad = !docState.isLoading &&
+          (docState.document == null ||
+              loadedPath == null ||
+              loadedPath != widget.filePath ||
+              docState.hasError);
+      _log.d(
+        'initState: loading=${docState.isLoading} hasDoc=${docState.document != null} '
+        'hasError=${docState.hasError} needsLoad=$needsLoad path=${widget.filePath}',
+      );
 
-      // Always update date opened first (awaited to prevent race with session)
-      await ref
-          .read(recentFilesMutatorProvider)
-          .updateDateOpened(widget.filePath);
-
-      if (!docState.isLoading &&
-          docState.document == null &&
-          !docState.hasError) {
-        _log.d('Loading document: ');
-        ref
-            .read(documentViewerProvider.notifier)
-            .initializeAndLoad(widget.filePath, widget.fileName)
-            .then((_) {
-          _log.d('Document loaded, starting time tracking...');
-          if (!_sessionStarted) {
+      if (needsLoad) {
+        _log.d('Loading document: ${widget.fileName}');
+        unawaited(
+          ref
+              .read(documentViewerProvider.notifier)
+              .initializeAndLoad(widget.filePath, widget.fileName)
+              .then((_) {
+            if (!mounted || _sessionStarted) return;
             _sessionStarted = true;
             _savedMutator = ref.read(recentFilesMutatorProvider);
             _sessionFilePath = widget.filePath;
             _savedMutator!.startViewingSession(widget.filePath);
-            _log.d('Time tracking started: ');
-          }
-          // For media: force rebuild so GlobalKey.currentState is available
-          if (mounted && isMediaFormat(widget.filePath)) {
-            setState(() {});
-          }
-        });
-      } else {
+            _log.d('Time tracking started: ${widget.filePath}');
+            if (isMediaFormat(widget.filePath)) {
+              setState(() {});
+            }
+          }),
+        );
+      } else if (!_sessionStarted) {
         _log.d('Document already loaded, starting session...');
-        if (!_sessionStarted) {
-          _sessionStarted = true;
-          _savedMutator = ref.read(recentFilesMutatorProvider);
-          _sessionFilePath = widget.filePath;
-          _savedMutator!.startViewingSession(widget.filePath);
-        }
+        _sessionStarted = true;
+        _savedMutator = ref.read(recentFilesMutatorProvider);
+        _sessionFilePath = widget.filePath;
+        _savedMutator!.startViewingSession(widget.filePath);
+      }
+
+      try {
+        await ref
+            .read(recentFilesMutatorProvider)
+            .updateDateOpened(widget.filePath);
+      } catch (e, st) {
+        _log.w('updateDateOpened failed: $e', error: e, stackTrace: st);
       }
     });
   }
@@ -631,12 +650,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   void _updateSystemUIOverlay() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     SystemChrome.setSystemUIOverlayStyle(
-      SystemUiOverlayStyle(
+      const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
         systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
     );
   }
@@ -677,18 +696,80 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         body: Stack(
           children: [
             Positioned.fill(
-              child: docState.isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : docState.hasError
-                      ? _buildErrorState(context, ref, docState)
-                      : docState.document != null
-                          ? Padding(
-                              padding: _contentOverlayPadding(context),
-                              child: _buildContentViewer(
-                                document: docState.document!,
-                              ),
-                            )
-                          : Center(child: Text(l10n.viewerNoContent)),
+              child: Builder(
+                builder: (context) {
+                  final pathExt = SupportedFormats.extensionOf(widget.filePath) ??
+                      SupportedFormats.extensionOf(widget.fileName) ??
+                      '';
+                  final fromDoc =
+                      docState.document?.format.toUpperCase() ?? '';
+                  final richWeb =
+                      SupportedFormats.isRichWeb(pathExt) ||
+                      SupportedFormats.isRichWeb(fromDoc.toLowerCase());
+                  final useVisual = richWeb &&
+                      !docState.hasError &&
+                      !docState.usingFallback &&
+                      _richFailedForPath != widget.filePath;
+
+                  if (useVisual) {
+                    final kind = (fromDoc == 'DOCX' || pathExt == 'docx')
+                        ? OfficeVisualKind.word
+                        : OfficeVisualKind.presentation;
+                    return Padding(
+                      padding: _contentOverlayPadding(context),
+                      child: OfficeVisualViewer(
+                        key: ValueKey('office_visual_${widget.filePath}'),
+                        filePath: widget.filePath,
+                        kind: kind,
+                        backgroundColor: const Color(0xFFF5F5F5),
+                        onRendered: () {
+                          ref.read(documentViewerProvider.notifier).markReady();
+                        },
+                        onError: (message) {
+                          _log.w(
+                            'Office visual failed: $message — loading fallback',
+                          );
+                          if (!mounted) return;
+                          setState(() => _richFailedForPath = widget.filePath);
+                          unawaited(
+                            ref
+                                .read(documentViewerProvider.notifier)
+                                .loadStructuredFallback(),
+                          );
+                        },
+                      ),
+                    );
+                  }
+
+                  if (docState.isLoading ||
+                      docState.phase == ViewerPhase.preparing) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          if (docState.parsingStatus != null) ...[
+                            const SizedBox(height: 16),
+                            Text(docState.parsingStatus!),
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+                  if (docState.hasError) {
+                    return _buildErrorState(context, ref, docState);
+                  }
+                  if (docState.document != null) {
+                    return Padding(
+                      padding: _contentOverlayPadding(context),
+                      child: _buildContentViewer(
+                        document: docState.document!,
+                      ),
+                    );
+                  }
+                  return Center(child: Text(l10n.viewerNoContent));
+                },
+              ),
             ),
 
             // Scrim overlay with dimming and tap/swipe-to-close
@@ -716,16 +797,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             ),
 
             // Sidebar with slide-in animation and drag support
-            AnimatedBuilder(
-              animation: _sidebarController,
-              builder: (context, child) {
-                final isRTL = Directionality.of(context) == TextDirection.rtl;
-                return Positioned(
-                  top: _topOverlayHeight(context),
-                  bottom: _kSidebarBottomOffset - _kSidebarRadius,
-                  left: isRTL ? null : 0,
-                  right: isRTL ? 0 : null,
-                  child: SlideTransition(
+            Positioned(
+              top: _topOverlayHeight(context),
+              bottom: _kSidebarBottomOffset - _kSidebarRadius,
+              left: Directionality.of(context) == TextDirection.rtl ? null : 0,
+              right: Directionality.of(context) == TextDirection.rtl ? 0 : null,
+              child: AnimatedBuilder(
+                animation: _sidebarController,
+                builder: (context, child) {
+                  final isRTL = Directionality.of(context) == TextDirection.rtl;
+                  return SlideTransition(
                     position: Tween<Offset>(
                       begin: isRTL
                           ? const Offset(1.0, 0.0)
@@ -741,20 +822,60 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                           ? _buildSidebarDrawer(context, isDark)
                           : const SizedBox.shrink(),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
 
-            // Always show top/bottom panels - let controller handle visibility
-            AnimatedBuilder(
-              animation: _topBarController,
-              builder: (context, child) {
-                return Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: SlideTransition(
+            // Floating back button — Positioned must be the Stack child.
+            Positioned(
+              top: _safeTopInset(context) + 8,
+              left: Directionality.of(context) == TextDirection.rtl ? null : 8,
+              right: Directionality.of(context) == TextDirection.rtl ? 8 : null,
+              child: AnimatedBuilder(
+                animation: _topBarController,
+                builder: (context, child) {
+                  final opacity =
+                      (1.0 - _topBarController.value).clamp(0.0, 1.0);
+                  return IgnorePointer(
+                    ignoring: opacity < 0.05,
+                    child: Opacity(
+                      opacity: opacity,
+                      child: child,
+                    ),
+                  );
+                },
+                child: Material(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surface
+                      .withValues(alpha: 0.92),
+                  shape: const CircleBorder(),
+                  elevation: 3,
+                  child: IconButton(
+                    icon: Icon(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? _chevronRightNoMirror
+                          : _chevronLeftNoMirror,
+                    ),
+                    tooltip: _l10n.back,
+                    iconSize: 24,
+                    color: Theme.of(context).colorScheme.onSurface,
+                    onPressed: () => context.pop(),
+                  ),
+                ),
+              ),
+            ),
+
+            // Top bar
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedBuilder(
+                animation: _topBarController,
+                builder: (context, child) {
+                  return SlideTransition(
                     position: Tween<Offset>(
                       begin: const Offset(0, -2.0),
                       end: Offset.zero,
@@ -762,21 +883,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       parent: _topBarController,
                       curve: Curves.easeOutCubic,
                     )),
-                    child: _buildFloatingTopBar(context, isDark),
-                  ),
-                );
-              },
+                    child: child,
+                  );
+                },
+                child: _buildFloatingTopBar(context, isDark),
+              ),
             ),
 
-            // Bottom panel with slide animation
-            AnimatedBuilder(
-              animation: _bottomPanelController,
-              builder: (context, child) {
-                return Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: SlideTransition(
+            // Bottom panel
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedBuilder(
+                animation: _bottomPanelController,
+                builder: (context, child) {
+                  return SlideTransition(
                     position: Tween<Offset>(
                       begin: const Offset(0, 1.0),
                       end: Offset.zero,
@@ -784,10 +906,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       parent: _bottomPanelController,
                       curve: Curves.easeOutCubic,
                     )),
-                    child: _buildFloatingBottomPanel(context, isDark),
-                  ),
-                );
-              },
+                    child: child,
+                  );
+                },
+                child: _buildFloatingBottomPanel(context, isDark),
+              ),
             ),
 
             // Fullscreen exit button - visible only in true fullscreen
@@ -873,59 +996,78 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           });
           _cachePdfTextStats(document, wordCount, lineCount);
         },
-      );
-    }
-
-    // For LOKit-rendered documents (presentations and word docs)
-    if (format == 'PPT' ||
-        format == 'PPTX' ||
-        format == 'ODP' ||
-        format == 'ODS' ||
-        format == 'DOCX' ||
-        format == 'DOC' ||
-        format == 'RTF' ||
-        format == 'ODT' ||
-        format == 'EPUB' ||
-        format == 'OTT') {
-      return LOKitDocumentViewer(
-        key: _lokitViewerKey,
-        filePath: widget.filePath,
-        fileName: widget.fileName,
-        onTap: _toggleControls,
-        onPageChanged: (current, total) {
-          if (total > 0) {
-            setState(() {
-              _currentPage = current;
-              _totalPages = total;
-            });
-          }
-        },
         onZoomChanged: (zoom) {
-          if ((zoom - _lokitZoom).abs() > 0.01) {
-            setState(() => _lokitZoom = zoom);
-          }
+          if (!mounted) return;
+          setState(() => _pdfZoom = zoom);
         },
       );
     }
 
-    // For text/code documents, use TextDocumentViewer with optional syntax highlighting
-    const txtFormats = {
-      'TXT',
-      'JAVA',
-      'PY',
-      'SH',
-      'HTML',
-      'MD',
-      'LOG',
-      'JSON',
-      'XML',
-      'FADREC',
-      'ATOM'
-    };
-    if (txtFormats.contains(format)) {
+    // DOCX / PPTX: pure-Flutter visual when not in fallback mode.
+    final formatExt = format.toLowerCase();
+    if (SupportedFormats.isRichWeb(formatExt) &&
+        !ref.read(documentViewerProvider).usingFallback &&
+        _richFailedForPath != widget.filePath) {
+      return OfficeVisualViewer(
+        key: ValueKey('office_visual_${widget.filePath}'),
+        filePath: widget.filePath,
+        kind: format == 'DOCX'
+            ? OfficeVisualKind.word
+            : OfficeVisualKind.presentation,
+        backgroundColor: const Color(0xFFF5F5F5),
+        onRendered: () {
+          ref.read(documentViewerProvider.notifier).markReady();
+        },
+        onError: (message) {
+          _log.w('Office visual failed for $format: $message — loading fallback');
+          if (!mounted) return;
+          setState(() => _richFailedForPath = widget.filePath);
+          unawaited(
+            ref.read(documentViewerProvider.notifier).loadStructuredFallback(),
+          );
+        },
+      );
+    }
+
+    // Structured Flutter viewer for office/ebook blocks (styles, lists, tables).
+    final kind = SupportedFormats.viewerKindOf(formatExt);
+    if (document.hasRichDocument &&
+        (kind == ViewerKind.structured ||
+            kind == ViewerKind.richWeb ||
+            kind == ViewerKind.text)) {
+      return RichStructuredDocumentViewer(
+        key: _structuredViewerKey,
+        document: document,
+        onTap: _toggleControls,
+        onSearchHighlight: _onSearchHighlight,
+        fontSize: _textFontSize,
+      );
+    }
+
+    // Plain/code documents — and office formats without structured blocks.
+    if (_isTextLikeFormat(format) ||
+        kind == ViewerKind.structured ||
+        kind == ViewerKind.text ||
+        kind == ViewerKind.richWeb) {
+      final text = document.searchableText;
+      if (text.isEmpty && document.slides.isNotEmpty) {
+        final slideText = document.slides
+            .map((s) => '[Slide ${s.slideNumber}]\n${s.text}')
+            .join('\n\n');
+        return TextDocumentViewer(
+          key: _textViewerKey,
+          textContent: slideText,
+          onTap: _toggleControls,
+          onSearchHighlight: _onSearchHighlight,
+          fontSize: _textFontSize,
+          wordWrap: _textWordWrap,
+          useMonoFont: _textFontIsMonoFont,
+          language: _syntaxHighlightEnabled ? _languageForFormat(format) : null,
+        );
+      }
       return TextDocumentViewer(
         key: _textViewerKey,
-        textContent: document.searchableText,
+        textContent: text.isEmpty ? 'No readable content found in this file.' : text,
         onTap: _toggleControls,
         onSearchHighlight: _onSearchHighlight,
         fontSize: _textFontSize,
@@ -936,12 +1078,43 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
 
     // For audio/video media files, use MediaViewer with playback controls
-    if (isMediaFormat(widget.filePath)) {
+    if (isMediaFormat(widget.filePath) || kind == ViewerKind.media) {
       return MediaViewer(
         key: _mediaViewerKey,
         filePath: widget.filePath,
         fileName: widget.fileName,
         onTap: _toggleControls,
+      );
+    }
+
+    if (kind == ViewerKind.image || SupportedFormats.isImage(formatExt)) {
+      return ImageViewer(
+        key: _imageViewerKey,
+        filePath: widget.filePath,
+        onTap: _toggleControls,
+        onZoomChanged: (zoom) {
+          if (!mounted) return;
+          setState(() => _imageZoom = zoom);
+        },
+      );
+    }
+
+    // Spreadsheets: same as PDF — zoom only in the bottom panel (no floating overlay).
+    if (kind == ViewerKind.spreadsheet ||
+        document.isSpreadsheet ||
+        _isSpreadsheet()) {
+      return DocumentViewerFactory.createViewer(
+        document: document,
+        filePath: widget.filePath,
+        onTap: _toggleControls,
+        onSheetSelectionChanged: (cellRef, value) {
+          setState(() {
+            _sheetCellRef = cellRef;
+            _sheetCellValue = value;
+          });
+        },
+        sheetViewerKey: _sheetViewerKey,
+        sheetZoom: _sheetZoom,
       );
     }
 
@@ -966,221 +1139,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       sheetViewerKey: _sheetViewerKey,
       sheetZoom: _sheetZoom,
     );
-  }
-
-  bool _isZoomed() {
-    if (!_isLOKitDocument()) return false;
-    return (_lokitZoom - 1.0).abs() > 0.05;
-  }
-
-  Widget _buildResetZoomButton() {
-    if (!_isZoomed()) {
-      return const SizedBox(width: 32, height: 32);
-    }
-    return IconButton(
-      icon: const Icon(Icons.fit_screen),
-      onPressed: () {
-        (_lokitViewerKey.currentState as dynamic)?.resetZoom();
-      },
-      tooltip: _l10n.viewerResetZoom,
-      iconSize: 18,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      padding: EdgeInsets.zero,
-      color: Theme.of(context).colorScheme.primary,
-    );
-  }
-
-  void _copyLOKitText() async {
-    final lokitState = ref.read(lokitViewerProvider);
-    final totalParts = lokitState.totalParts;
-    final currentPage = lokitState.currentPart + 1;
-    final isSinglePage = totalParts <= 1;
-
-    if (isSinglePage) {
-      _doExtractAndCopy(
-          allPages: true, totalParts: totalParts, currentPage: currentPage);
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        final l10n = AppLocalizations.of(ctx)!;
-
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.copy_all,
-                  size: 20, color: Theme.of(ctx).colorScheme.primary),
-              const SizedBox(width: 8),
-              Text(l10n.viewerCopyTextTitle),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(l10n.viewerCopyTextChoose),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: Icon(Icons.looks_one,
-                    color: Theme.of(ctx).colorScheme.primary),
-                title: Text(l10n.viewerCopyPageOnly(currentPage)),
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _doExtractAndCopy(
-                      allPages: false,
-                      totalParts: totalParts,
-                      currentPage: currentPage);
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.copy_all,
-                    color: Theme.of(ctx).colorScheme.primary),
-                title: Text(l10n.viewerCopyAllPages(totalParts)),
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _doExtractAndCopy(
-                      allPages: true,
-                      totalParts: totalParts,
-                      currentPage: currentPage);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _doExtractAndCopy(
-      {required bool allPages,
-      required int totalParts,
-      required int currentPage}) async {
-    final l10n = _l10n;
-    final notifier = ref.read(lokitViewerProvider.notifier);
-    final label = allPages
-        ? l10n.viewerAllPagesLower
-        : l10n.viewerLowerPageLabel(currentPage);
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        content: Row(
-          children: [
-            const CircularProgressIndicator(strokeWidth: 2),
-            const SizedBox(width: 16),
-            Expanded(child: Text(l10n.viewerExtractingText(label))),
-          ],
-        ),
-      ),
-    );
-
-    try {
-      final String text;
-      if (allPages) {
-        text = await notifier.extractAllText();
-      } else {
-        text = await LOKitService.extractPartText(part: currentPage - 1);
-      }
-      if (!mounted) return;
-      Navigator.pop(context);
-
-      if (text.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.viewerNoTextFound)),
-        );
-        return;
-      }
-
-      final wordCount =
-          text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
-      final pageLabel = allPages
-          ? l10n.viewerAllPagesLabel(totalParts)
-          : l10n.viewerPageLabel(currentPage);
-
-      showDialog(
-        context: context,
-        builder: (ctx) {
-          final dialogL10n = AppLocalizations.of(ctx)!;
-
-          return AlertDialog(
-            title: Row(
-              children: [
-                Icon(Icons.copy_all,
-                    size: 20, color: Theme.of(ctx).colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(dialogL10n.viewerCopyTextTitle),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(dialogL10n.viewerTextExtracted(pageLabel)),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.text_fields,
-                          size: 16, color: Theme.of(ctx).colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        dialogL10n.viewerWordsFound(wordCount),
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(ctx).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(dialogL10n.cancel),
-              ),
-              FilledButton.icon(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  await Clipboard.setData(ClipboardData(text: text));
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content:
-                            Text(l10n.viewerCopiedWords(wordCount, pageLabel)),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.copy, size: 16),
-                label: Text(dialogL10n.copy),
-              ),
-            ],
-          );
-        },
-      );
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.viewerErrorPrefix(e.toString()))),
-        );
-      }
-    }
   }
 
   Widget _buildFloatingTopBar(BuildContext context, bool isDark) {
@@ -1241,19 +1199,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                     ),
                   ),
                 ),
-                child: SafeArea(
-                  bottom: false,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: _safeTopInset(context),
+                  ),
                   child: SizedBox(
-                    height: 40,
+                    height: _kTopBarContentHeight,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Stack(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
                         children: [
-                          Align(
-                            alignment:
-                                Directionality.of(context) == TextDirection.rtl
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
+                          // Prominent, always-visible back button (leading).
+                          Material(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: 0.10),
+                            shape: const CircleBorder(),
                             child: IconButton(
                               icon: Icon(
                                 Directionality.of(context) == TextDirection.rtl
@@ -1262,42 +1224,41 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                               ),
                               onPressed: () => context.pop(),
                               tooltip: _l10n.back,
-                              iconSize: 20,
+                              iconSize: 26,
+                              color: Theme.of(context).colorScheme.primary,
                               constraints: const BoxConstraints(
-                                minWidth: 32,
-                                minHeight: 32,
+                                minWidth: 44,
+                                minHeight: 44,
                               ),
                               padding: EdgeInsets.zero,
                             ),
                           ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: _buildResetZoomButton(),
-                          ),
-                          Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 420),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    widget.fileName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelLarge
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                  ),
-                                  _buildTimeToRead(context),
-                                ],
-                              ),
+                          const SizedBox(width: 4),
+                          // File name + reading stats fill the remaining space,
+                          // so they can never overlap the back button.
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text(
+                                  widget.fileName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelLarge
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                                _buildTimeToRead(context),
+                              ],
                             ),
                           ),
+                          // Trailing spacer to keep the title visually centered.
+                          const SizedBox(width: 48),
                         ],
                       ),
                     ),
@@ -1406,16 +1367,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     VoidCallback? onTap,
   ) {
     return SizedBox(
-      width: 32,
-      height: 32,
+      width: 42,
+      height: 42,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           child: Icon(
             icon,
-            size: 16,
+            size: 22,
             color: onTap != null
                 ? Theme.of(context).colorScheme.primary
                 : Theme.of(context)
@@ -1432,17 +1393,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     return GestureDetector(
       onTap: _totalPages > 1 ? _showGoToPageDialog : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: Theme.of(context)
               .colorScheme
               .primaryContainer
               .withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           '$_currentPage/$_totalPages',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: Theme.of(context).colorScheme.primary,
               ),
@@ -1970,7 +1931,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
+                          horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         border: Border(
                           top: BorderSide(
@@ -1987,19 +1948,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                           if (_sheetCellRef != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Theme.of(context)
                                     .colorScheme
                                     .primaryContainer
                                     .withValues(alpha: 0.5),
-                                borderRadius: BorderRadius.circular(4),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 _sheetCellRef!,
                                 style: Theme.of(context)
                                     .textTheme
-                                    .labelSmall
+                                    .titleSmall
                                     ?.copyWith(
                                       fontWeight: FontWeight.bold,
                                       color: Theme.of(context)
@@ -2008,7 +1969,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                                     ),
                               ),
                             ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               _sheetCellValue.isEmpty
@@ -2018,8 +1979,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context)
                                   .textTheme
-                                  .labelSmall
+                                  .bodyMedium
                                   ?.copyWith(
+                                    fontWeight: FontWeight.w500,
                                     color: _sheetCellValue.isEmpty
                                         ? Theme.of(context).colorScheme.outline
                                         : null,
@@ -2029,11 +1991,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                           if (_sheetCellValue.isNotEmpty)
                             IconButton(
                               icon: Icon(Icons.copy,
-                                  size: 14,
+                                  size: 20,
                                   color: Theme.of(context).colorScheme.primary),
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(
-                                  minWidth: 24, minHeight: 24),
+                                  minWidth: 40, minHeight: 40),
                               onPressed: () {
                                 Clipboard.setData(
                                     ClipboardData(text: _sheetCellValue));
@@ -2075,6 +2037,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       ],
                     ),
                   ),
+                  // Keep controls above the system navigation / gesture bar.
+                  SizedBox(height: MediaQuery.viewPaddingOf(context).bottom),
                 ],
               ),
             ),
@@ -2116,56 +2080,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             Icons.last_page,
             _currentPage < _totalPages ? _goToLastPage : null,
           ),
+          if (!_textMode) ...[
+            const SizedBox(width: 8),
+            ViewerZoomPanelControls(
+              zoom: _pdfZoom,
+              minZoom: 0.25,
+              maxZoom: 8.0,
+              showFit: true,
+              onZoomOut: () =>
+                  (_pdfViewerKey.currentState as dynamic)?.zoomOut(),
+              onZoomIn: () =>
+                  (_pdfViewerKey.currentState as dynamic)?.zoomIn(),
+              onFit: () =>
+                  (_pdfViewerKey.currentState as dynamic)?.fitToWidth(),
+            ),
+          ],
         ],
       );
-    } else if (_isLOKitDocument()) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildIconButton(
-            context,
-            Icons.first_page,
-            _currentPage > 1 ? _goToFirstPage : null,
-          ),
-          _buildIconButton(
-            context,
-            Icons.chevron_left,
-            _currentPage > 1 ? _goToPreviousPage : null,
-          ),
-          _buildPageIndicator(context),
-          _buildIconButton(
-            context,
-            Icons.chevron_right,
-            _currentPage < _totalPages ? _goToNextPage : null,
-          ),
-          _buildIconButton(
-            context,
-            Icons.last_page,
-            _currentPage < _totalPages ? _goToLastPage : null,
-          ),
-        ],
-      );
-    } else if (const {
-      'TXT',
-      'JAVA',
-      'PY',
-      'SH',
-      'HTML',
-      'MD',
-      'LOG',
-      'JSON',
-      'XML',
-      'FADREC'
-    }.contains(format)) {
+    } else if (_isTextLikeFormat(format)) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildIconButton(
             context,
             Icons.remove,
-            _textFontSize > 10
+            _textFontSize > 12
                 ? () => setState(
-                    () => _textFontSize = (_textFontSize - 1).clamp(10, 24))
+                    () => _textFontSize = (_textFontSize - 1).clamp(12, 32))
                 : null,
           ),
           SizedBox(
@@ -2180,9 +2121,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           _buildIconButton(
             context,
             Icons.add,
-            _textFontSize < 24
+            _textFontSize < 32
                 ? () => setState(
-                    () => _textFontSize = (_textFontSize + 1).clamp(10, 24))
+                    () => _textFontSize = (_textFontSize + 1).clamp(12, 32))
                 : null,
           ),
           const SizedBox(width: 8),
@@ -2195,8 +2136,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       );
     } else if (const {'PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'}
         .contains(format)) {
-      // Image viewer - no format-specific controls needed
-      return const SizedBox.shrink();
+      return ViewerZoomPanelControls(
+        zoom: _imageZoom,
+        minZoom: 0.5,
+        maxZoom: 5.0,
+        showFit: true,
+        onZoomOut: () => _imageViewerKey.currentState?.zoomOut(),
+        onZoomIn: () => _imageViewerKey.currentState?.zoomIn(),
+        onFit: () => _imageViewerKey.currentState?.fitToView(),
+      );
     } else if (isMediaFormat(widget.filePath)) {
       final media = _mediaViewerKey.currentState;
       if (media == null) return const SizedBox.shrink();
@@ -2204,45 +2152,28 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
 
     if (_isSpreadsheet()) {
+      // Same zoom widget as PDF bottom bar (− / % / + / fit).
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Zoom controls like text mode
-          IconButton(
-            icon: const Icon(Icons.remove, size: 14),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-            onPressed: _sheetZoom > 0.3
-                ? () => setState(
-                    () => _sheetZoom = (_sheetZoom - 0.1).clamp(0.3, 3.0))
-                : null,
-          ),
-          SizedBox(
-            width: 36,
-            child: Center(
-              child: Text(
-                '${(_sheetZoom * 100).toStringAsFixed(0)}%',
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
+          ViewerZoomPanelControls(
+            zoom: _sheetZoom,
+            minZoom: 0.3,
+            maxZoom: 3.0,
+            showFit: true,
+            onZoomOut: () => setState(
+              () => _sheetZoom = (_sheetZoom - 0.15).clamp(0.3, 3.0),
             ),
+            onZoomIn: () => setState(
+              () => _sheetZoom = (_sheetZoom + 0.15).clamp(0.3, 3.0),
+            ),
+            onFit: () => setState(() => _sheetZoom = 1.0),
           ),
-          IconButton(
-            icon: const Icon(Icons.add, size: 14),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-            onPressed: _sheetZoom < 3.0
-                ? () => setState(
-                    () => _sheetZoom = (_sheetZoom + 0.1).clamp(0.3, 3.0))
-                : null,
-          ),
-          const SizedBox(width: 8),
-          // Fullscreen
-          IconButton(
-            icon: const Icon(Icons.fullscreen, size: 14),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-            onPressed: _toggleFullscreen,
-            tooltip: _l10n.viewerToggleFullscreen,
+          const SizedBox(width: 4),
+          _buildIconButton(
+            context,
+            Icons.fullscreen,
+            _toggleFullscreen,
           ),
         ],
       );
@@ -2386,42 +2317,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTile(
-              icon: Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: l10n.theme,
-              onTap: () {
-                ref.read(themeModeProvider.notifier).toggleThemeMode();
-              },
-            ),
-          ),
-        ],
-      );
-    } else if (format == 'PPT' || format == 'PPTX' || format == 'ODP') {
-      return Row(
-        children: [
-          Expanded(
-            child: _buildTile(
-              icon: Icons.copy_all,
-              label: l10n.copy,
-              onTap: _copyLOKitText,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTile(
-              icon: Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: l10n.theme,
-              onTap: () {
-                ref.read(themeModeProvider.notifier).toggleThemeMode();
-              },
-            ),
-          ),
         ],
       );
     } else if (const {
@@ -2430,6 +2325,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       'DOC',
       'RTF',
       'ODT',
+      'OTT',
+      'PPT',
+      'PPTX',
+      'ODP',
+      'EPUB',
       'JAVA',
       'PY',
       'SH',
@@ -2507,18 +2407,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               },
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTile(
-              icon: Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: l10n.theme,
-              onTap: () {
-                ref.read(themeModeProvider.notifier).toggleThemeMode();
-              },
-            ),
-          ),
         ],
       );
     } else if (isMediaFormat(widget.filePath)) {
@@ -2532,23 +2420,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                   _showSpeedDialog(context, _mediaViewerKey.currentState),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTile(
-              icon: Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: l10n.theme,
-              onTap: () {
-                ref.read(themeModeProvider.notifier).toggleThemeMode();
-              },
-            ),
-          ),
         ],
       );
     } else if (const {'PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'}
         .contains(format)) {
-      // Image viewer - show copy extracted text and theme
       return Row(
         children: [
           Expanded(
@@ -2558,81 +2433,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               onTap: _copyImageExtractedText,
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTile(
-              icon: Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: l10n.theme,
-              onTap: () {
-                ref.read(themeModeProvider.notifier).toggleThemeMode();
-              },
-            ),
-          ),
         ],
       );
     }
 
     if (_isSpreadsheet()) {
-      return Row(
-        children: [
-          Expanded(
-            child: _buildTile(
-              icon: Icons.edit_outlined,
-              label: l10n.viewerEdit,
-              onTap: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) {
-                    final dialogL10n = AppLocalizations.of(ctx)!;
-
-                    return AlertDialog(
-                      icon: Icon(Icons.edit_outlined,
-                          color: Theme.of(ctx).colorScheme.primary),
-                      title: Text(dialogL10n.viewerEditWithEngine),
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(dialogL10n.viewerEditWithEngineDesc),
-                          const SizedBox(height: 16),
-                          Text(
-                            dialogL10n.viewerEditWithEngineNote,
-                            style: const TextStyle(fontStyle: FontStyle.italic),
-                          ),
-                        ],
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: Text(dialogL10n.viewerNotNow),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: Text(dialogL10n.viewerGotIt),
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTile(
-              icon: Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: l10n.theme,
-              onTap: () {
-                ref.read(themeModeProvider.notifier).toggleThemeMode();
-              },
-            ),
-          ),
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
     return const SizedBox.shrink();

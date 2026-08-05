@@ -1,4 +1,4 @@
-# Developer & Agent Guide: Fadocx Optimization
+# Developer & Agent Guide: Air Docs Viewer
 
 ## Workflow Orchestration
 
@@ -108,13 +108,13 @@ dart run build_runner build --delete-conflicting-outputs
 When updating app branding or icons, follow this workflow:
 
 ### 1. Update App Launcher Icon
-- **File:** `assets/fadocx.png` (1:1 square ratio, minimum 1024x1024px recommended)
+- **File:** `assets/air_docs_launcher.png` (1:1 square ratio, minimum 1024x1024px recommended)
 - **After update:** Run `flutter pub run flutter_launcher_icons` to generate platform-specific launcher icons
 - **Generates:** Android `mipmap-*` directories and iOS `AppIcon.appiconset`
 
 ### 2. Update App Bar & Splash Screen Icon
-- **File:** `assets/fadocx_header_landscape_png.png` (2:1 landscape ratio, e.g., 1024x512px)
-- **Usage:** App bar header (80x32px in app) and splash screen background
+- **File:** `assets/air_docs_logo_splash.png` (centered logo for splash)
+- **Usage:** Splash screen background / emblem
 - **After update:** Run `flutter pub run flutter_native_splash:create` to regenerate native splash screen
 - **Generates:** Native Android and iOS splash screen assets
 
@@ -127,95 +127,33 @@ When updating app branding or icons, follow this workflow:
 - Both commands modify native platform files; regenerate after any asset changes
 - Test on both Android and iOS after regeneration to ensure correct scaling
 
-## Build Flavors & Architecture Support
+## Architecture & Build Targets
 
-**Fadocx supports arm64-v8a architecture only** (64-bit ARM). This is due to LibreOffice native code dependencies.
+**Air Docs Viewer targets arm64-v8a** (64-bit ARM). Prefer that ABI for release testing.
 
-- ✅ **arm64-v8a** (64-bit ARM) — Most modern Android devices
-- ❌ **armeabi-v7a** (32-bit ARM) — Missing LibreOffice native code
-- ❌ **x86_64** (Intel/AMD) — Missing LibreOffice native code
+There is **no LibreOfficeKit** in the current product. Office docs use WebView JS (DOCX/PPTX), Dart/native structured parsers, and Apache POI for spreadsheets. See root [README.md](README.md) for the authoritative stack.
 
-### Using the Build Script
+### Identity
 
-The interactive build script (`./build.sh`) handles all build operations:
+- **Package Name:** `com.airdocsviewer`
+- **Flutter package:** `air_docs_viewer`
+- **App Name:** Air Docs Viewer
+- **Gradle APK names:** `AirDocsViewer-release.apk` / `AirDocsViewer-debug.apk`
+- **Run:** `flutter run`
+- **Build:** `flutter build apk --release --split-per-abi --target-platform android-arm64`
 
-```bash
-./build.sh
-```
+### Build sizes (approx.)
 
-**Menu Options:**
+| Build Type | Size | Notes |
+|-----------|------|--------|
+| Release | ~75–80MB | R8 + shrink resources |
+| Debug | larger | No minify |
 
-**PRODUCTION BUILDS**
-- Option 1: Build & Install Prod (Release) — Optimized, minified (~346MB)
-- Option 2: Build Prod (Release Only) — Build without installing
+### Icons / splash
 
-**BETA BUILDS**
-- Option 3: Build & Install Beta (Release) — Optimized, minified (~346MB)
-- Option 4: Build Beta (Release Only) — Build without installing
+Use Air Docs assets (see `pubspec.yaml` launcher/splash config). Regenerated via `flutter_launcher_icons` / `flutter_native_splash`.
 
-**DEVELOPMENT**
-- Option 5: Dev: Run Prod (Debug) — Hot reload, live debugging
-- Option 6: Dev: Run Beta (Debug) — Hot reload, live debugging
-- Option 7: Dev: Build Prod (Debug) — Build without installing (~400MB)
-- Option 8: Dev: Build Beta (Debug) — Build without installing (~400MB)
-
-**MANAGEMENT**
-- Option 9: Uninstall Prod
-- Option 0: Uninstall Beta
-- Option q: Exit
-
-### Manual Build Commands
-
-```bash
-# Build arm64 release APK
-flutter build apk --flavor prod --release --split-per-abi --target-platform android-arm64
-
-# Build arm64 debug APK
-flutter build apk --flavor prod --debug --split-per-abi --target-platform android-arm64
-
-# Run with hot reload (development)
-flutter run --flavor prod
-
-# Install manually
-adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-prod-release.apk
-
-# Uninstall
-adb uninstall com.fadseclab.fadocx
-```
-
-### Build Sizes
-
-| Build Type | Size | Optimization |
-|-----------|------|--------------|
-| Release | ~346MB | R8 minification |
-| Debug | ~400MB | No minification |
-
-### Flavors
-
-Fadocx supports two build flavors: **beta** and **prod**.
-
-#### Beta Flavor
-- **Package Name:** `com.fadseclab.fadocx.beta`
-- **App Name:** Fadocx Beta
-- **Icon:** `assets/fadocx_beta.png`
-- **Run Command:** `flutter run --flavor beta`
-- **Build Command:** `flutter build apk --flavor beta --release --split-per-abi --target-platform android-arm64`
-
-#### Prod Flavor
-- **Package Name:** `com.fadseclab.fadocx`
-- **App Name:** Fadocx
-- **Icon:** `assets/fadocx.png`
-- **Run Command:** `flutter run --flavor prod`
-- **Build Command:** `flutter build apk --flavor prod --release --split-per-abi --target-platform android-arm64`
-
-### Setup
-
-- Flavors are configured in `android/app/build.gradle.kts` using `flavorDimensions` and `productFlavors`
-- App name per flavor uses `manifestPlaceholders["appName"]` in build.gradle.kts
-- AndroidManifest.xml references `${appName}` for `android:label`
-- Regenerate icons after changes: `flutter pub run flutter_launcher_icons`
-
-**For detailed build options and troubleshooting, see [BUILD_GUIDE.md](BUILD_GUIDE.md).**
+**For details, see [README.md](README.md) and [BUILD_GUIDE.md](BUILD_GUIDE.md).**
 
 ## Custom UI Design Patterns
 
@@ -228,7 +166,7 @@ This pattern creates a "tab" or "sheet" that appears to grow out of a screen edg
 3. **ClipBehavior.none**: Ensure the parent `Stack` has `clipBehavior: Clip.none` if the flares need to extend into the "safe area" or beyond the content boundaries.
 4. **Coordinate Mapping**: The body should be offset (e.g., by `radius`) to allow the flares to occupy the space above/below or to the side of the main content area.
 
-**Visual Reference:** Similar to how Google Chrome tabs blend into the top toolbar. In Fadocx, this is used on the `ViewerScreen` sidebar to blend it into the screen's left boundary.
+**Visual Reference:** Similar to how Google Chrome tabs blend into the top toolbar. In Air Docs Viewer, this is used on the `ViewerScreen` sidebar to blend it into the screen's left boundary.
 
 ## Flutter Animation Best Practices
 
@@ -363,30 +301,7 @@ Widget _buildContentViewer() {
 - **Run Analysis**: Run `flutter analyze` (or the appropriate static analysis for the project) after making changes and address reported issues before finalizing.
 - **Document Decisions**: Record investigative steps, rationale, and the root-cause analysis back in the todo or the issue tracker so future reviewers see context.
 
-## Reusable UI Widgets
-
-### LinkTile (`lib/core/presentation/widgets/link_tile.dart`)
-Settings tile for displaying a URL or email. Shows the value and a chevron that opens a bottom sheet with **Copy** and **Open** actions.
-
-**Usage:**
-```dart
-// URL (opens in browser)
-LinkTile.url(
-  icon: Icons.code,
-  title: 'Source Code',
-  value: 'https://github.com/anonfaded/Fadocx',
-)
-
-// Email (opens mailto)
-LinkTile.email(
-  icon: Icons.email_outlined,
-  title: 'Contact',
-  value: 'contact@fadseclab.com',
-)
-```
-
-The bottom sheet shows an action list with:
-- **Copy** — copies the value to clipboard, shows a SnackBar
-- **Open in Browser / Send Email** — launches the browser or mail app
-
-Use `LinkTile` for ALL external links (URLs, emails, etc.) in settings or anywhere in the app to provide a consistent UX.
+## Offline / privacy notes
+- Release builds are **strict offline**: no `INTERNET` permission in the main manifest.
+- External URL / email launcher widgets were removed; document hyperlinks copy to clipboard instead of opening the browser.
+- Prefer SAF / `file_picker` for document access — do not reintroduce `MANAGE_EXTERNAL_STORAGE`.

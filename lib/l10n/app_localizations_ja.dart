@@ -9,13 +9,13 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get appName => 'Fadocx';
+  String get appName => 'Air Docs Viewer';
 
   @override
   String get appDescription => 'ドキュメントビューアー';
 
   @override
-  String get homeTitle => 'Fadocx';
+  String get homeTitle => 'Air Docs Viewer';
 
   @override
   String get recentFiles => '最近のファイル';
@@ -204,10 +204,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get languageChanged => '言語を日本語に変更しました';
 
   @override
-  String get privacyDescription => 'Fadocx はドキュメントビューアーです。ファイルは端末内に保存され、サーバーへ送信されることはありません。';
+  String get privacyDescription => 'Air Docs Viewer はドキュメントビューアーです。ファイルは端末内に保存され、サーバーへ送信されることはありません。';
 
   @override
-  String get aboutDescription => 'Fadocx v1.0.0 - あなたのプライベートドキュメントビューアー。プライバシーを尊重して構築されました。';
+  String get aboutDescription => 'Air Docs Viewer v1.0.0 - あなたのプライベートドキュメントビューアー。プライバシーを尊重して構築されました。';
 
   @override
   String get tableRows => '行';
@@ -395,7 +395,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get becomeAPatron => 'パトロンになる';
 
   @override
-  String get patreonDescription => 'あなたの支援は Fadocx と FadCam の成長を支えます。Patreon の支援者は、プレミアム機能や FadSec Lab のすべてのアプリでの先行アクセスなど、限定特典を利用できます。\n\n詳しくは下のリンクから Patreon を開き、利用可能なプランと特典を確認してください。';
+  String get patreonDescription => 'あなたの支援は Air Docs Viewer と の成長を支えます。Patreon の支援者は、プレミアム機能や Crypto Sys Development のすべてのアプリでの先行アクセスなど、限定特典を利用できます。\n\n詳しくは下のリンクから Patreon を開き、利用可能なプランと特典を確認してください。';
 
   @override
   String get discordTitle => 'Discord に参加';
@@ -515,7 +515,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get monthDec => '12月';
 
   @override
-  String get homeWelcomeTitle => 'Fadocxへようこそ';
+  String get homeWelcomeTitle => 'Air Docs Viewerへようこそ';
 
   @override
   String get homeWelcomeSubtitle => 'サンプルファイルを探索するか、自分のドキュメントをインポートしてください';
@@ -554,7 +554,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get onboardingGetStarted => '始める';
 
   @override
-  String get onboardingSlide1Title => 'Fadocxへようこそ';
+  String get onboardingSlide1Title => 'Air Docs Viewerへようこそ';
 
   @override
   String get onboardingSlide1Tagline => 'オールインワンのプライベート文書管理';
@@ -710,7 +710,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String homeSaveToDownloadsPath(String name) {
-    return 'ダウンロード/Fadocx/$name';
+    return 'ダウンロード/AirDocsViewer/$name';
   }
 
   @override
@@ -721,7 +721,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String homeSavedToDownloads(String name) {
-    return 'ダウンロード/Fadocx/$nameに保存されました';
+    return 'ダウンロード/AirDocsViewer/$nameに保存されました';
   }
 
   @override
@@ -1008,7 +1008,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get whatsNewEditing => 'ドキュメント編集';
 
   @override
-  String get whatsNewEditingDesc => 'Fadocx 内でドキュメントをすばやく編集できます。';
+  String get whatsNewEditingDesc => 'Air Docs Viewer 内でドキュメントをすばやく編集できます。';
 
   @override
   String get whatsNewBookmarks => 'ブックマークと注釈';
@@ -1038,10 +1038,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get whatsNewOfflineFirst => 'プライバシー重視のオフラインファースト文書ビューア。アカウント不要、トラッキングなし、インターネット不要。';
 
   @override
-  String get whatsNewThankYou => 'Fadocx をご利用いただきありがとうございます';
+  String get whatsNewThankYou => 'Air Docs Viewer をご利用いただきありがとうございます';
 
   @override
-  String get whatsNewThankYouDesc => 'Fadocx に価値を感じたら、開発支援をご検討ください。あなたの貢献が、プライバシー第一のツール開発を支えます。';
+  String get whatsNewThankYouDesc => 'Air Docs Viewer に価値を感じたら、開発支援をご検討ください。あなたの貢献が、プライバシー第一のツール開発を支えます。';
 
   @override
   String get drawerWhatNew => '新機能';
@@ -1104,7 +1104,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get updateAvailableTitle => 'アップデートが利用可能です';
 
   @override
-  String get updateAvailableSubtitle => 'Fadocxの新しいバージョンがダウンロード可能です';
+  String get updateAvailableSubtitle => 'Air Docs Viewerの新しいバージョンがダウンロード可能です';
 
   @override
   String get updateStableRelease => '安定版リリース';
@@ -1131,7 +1131,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get updateVisitGithub => 'GitHubにアクセス';
 
   @override
-  String get updateBetaInfo => 'Fadocx ベータ版は安定版と並行してインストールできる独立したアプリです。安定版アプリやそのデータには影響しません。\n\n安定版に届く前に新機能を試すには、ベータ版をインストールしてください。';
+  String get updateBetaInfo => 'Air Docs Viewer ベータ版は安定版と並行してインストールできる独立したアプリです。安定版アプリやそのデータには影響しません。\n\n安定版に届く前に新機能を試すには、ベータ版をインストールしてください。';
 
   @override
   String get updateBannerStable => '安定版更新';
@@ -1188,7 +1188,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsStorageInfo => 'ドキュメントは端末内のプライベートフォルダーに保存され、他のアプリからはアクセスできません';
 
   @override
-  String get settingsStoragePrivateFolderInfo => 'ドキュメントは他のアプリやファイルマネージャーから見えないプライベートフォルダーに保存されています。アクセスできるのは Fadocx のみです。';
+  String get settingsStoragePrivateFolderInfo => 'ドキュメントは他のアプリやファイルマネージャーから見えないプライベートフォルダーに保存されています。アクセスできるのは Air Docs Viewer のみです。';
 
   @override
   String get settingsStorageDeleteInfo => '設定の危険ゾーンからドキュメントを削除してください';
@@ -1242,10 +1242,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsPrivacyPolicy => 'プライバシーポリシー';
 
   @override
-  String get settingsMoreFromFadsec => 'FadSec Lab のその他の製品';
+  String get settingsMoreFromFadsec => 'Crypto Sys Development のその他の製品';
 
   @override
-  String get settingsFadocxDesc => 'あなたのドキュメントビューアー';
+  String get settingsAppDesc => 'あなたのドキュメントビューアー';
 
   @override
   String get settingsDangerZone => '危険ゾーン';
@@ -1316,7 +1316,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsShareApp => '友だちと共有';
 
   @override
-  String get settingsShareMessage => 'Fadocx をチェック！\n\nPDF、Office、スプレッドシート、プレゼンテーション、コードファイル、OCR テキスト抽出に対応したオールインワンドキュメントビューア。完全オフライン、トラッキングなし、オープンソース。\n\nhttps://github.com/anonfaded/Fadocx';
+  String get settingsShareMessage => 'Air Docs Viewer をチェック！\n\nPDF、Office、スプレッドシート、プレゼンテーション、コードファイル、OCR テキスト抽出に対応したオールインワンドキュメントビューア。完全オフライン、トラッキングなし、オープンソース。\n\n';
+
+  @override
+  String get settingsDeveloper => 'Developer';
+
+  @override
+  String get settingsDeveloperName => 'Crypto Sys Development';
 
   @override
   String get settingsShareVia => '共有方法...';
@@ -1346,7 +1352,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsPrivacyByDesign => '私たちは設計段階からのプライバシーを重視します。';
 
   @override
-  String get settingsPrivacyTransparency => 'Fadocxは透明性を持って構築されました。あなたのドキュメントはあなたのもの – 私たちのものではありません。';
+  String get settingsPrivacyTransparency => 'Air Docs Viewerは透明性を持って構築されました。あなたのドキュメントはあなたのもの – 私たちのものではありません。';
 
   @override
   String get settingsViewSourceCode => 'ソースコードを表示';
@@ -1382,7 +1388,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsIn => '内';
 
   @override
-  String get settingsCopyright => '© 2024 – 2026 FadSec Lab · GPLv3 · fadseclab.com';
+  String get settingsCopyright => '© 2024 – 2026 Crypto Sys Development · GPLv3 · cryptosys.dev';
 
   @override
   String settingsTypeToConfirm(String text) {
@@ -1664,10 +1670,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerEdit => '編集';
 
   @override
-  String get viewerEditWithEngine => 'Fadocx Engine で編集';
+  String get viewerEditWithEngine => 'Air Docs Viewer Engine で編集';
 
   @override
-  String get viewerEditWithEngineDesc => 'このスプレッドシートを Fadocx レンダリングエンジンで開き、完全な書式、グラフ、レイアウト再現性を備えた忠実なプレビューを表示します。';
+  String get viewerEditWithEngineDesc => 'このスプレッドシートを Air Docs Viewer レンダリングエンジンで開き、完全な書式、グラフ、レイアウト再現性を備えた忠実なプレビューを表示します。';
 
   @override
   String get viewerEditWithEngineNote => '注: インタラクティブ編集は今後のアップデートで対応予定です。';
@@ -1977,7 +1983,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get lokitPreparingDoc => 'ドキュメントを準備中...';
 
   @override
-  String get lokitWarmingUp => 'Fadocx エンジンを起動中...';
+  String get lokitWarmingUp => 'Air Docs Viewer エンジンを起動中...';
 
   @override
   String get lokitAlmostThere => 'もう少し';
@@ -1989,5 +1995,5 @@ class AppLocalizationsJa extends AppLocalizations {
   String get lokitFailedToRender => 'ドキュメントの表示に失敗しました';
 
   @override
-  String get drawerFadSecLab => 'FadSec Lab';
+  String get drawerFadSecLab => 'Crypto Sys Development';
 }

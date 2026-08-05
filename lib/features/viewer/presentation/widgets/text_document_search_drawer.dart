@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 class TextSearchResult {
   final int lineNumber;

@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
-import 'package:fadocx/features/home/presentation/screens/main_shell.dart';
-import 'package:fadocx/features/home/presentation/screens/documents_screen.dart';
-import 'package:fadocx/features/home/presentation/screens/browse_screen.dart';
-import 'package:fadocx/features/home/presentation/screens/trash_screen.dart';
-import 'package:fadocx/features/home/presentation/screens/whats_new_screen.dart';
-import 'package:fadocx/features/settings/presentation/screens/settings_screen.dart';
-import 'package:fadocx/features/viewer/presentation/screens/viewer_screen.dart';
-import 'package:fadocx/features/scanner/presentation/screens/scanner_screen.dart';
-import 'package:fadocx/features/onboarding/presentation/screens/onboarding_screen.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/home/presentation/screens/main_shell.dart';
+import 'package:air_docs_viewer/features/home/presentation/screens/documents_screen.dart';
+import 'package:air_docs_viewer/features/home/presentation/screens/browse_screen.dart';
+import 'package:air_docs_viewer/features/home/presentation/screens/trash_screen.dart';
+import 'package:air_docs_viewer/features/home/presentation/screens/whats_new_screen.dart';
+import 'package:air_docs_viewer/features/settings/presentation/screens/settings_screen.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/screens/viewer_screen.dart';
+import 'package:air_docs_viewer/features/onboarding/presentation/screens/onboarding_screen.dart';
 
 final log = Logger();
 
@@ -23,7 +22,6 @@ class RouteNames {
   static const String trash = '/trash';
   static const String viewer = '/viewer';
   static const String settings = '/settings';
-  static const String scanner = '/scanner';
   static const String whatsNew = '/whats-new';
 }
 
@@ -196,16 +194,6 @@ GoRouter createGoRouter() {
       ),
 
 
-       // Scanner screen
-       GoRoute(
-         path: RouteNames.scanner,
-         name: 'scanner',
-         pageBuilder: (context, state) {
-           log.d('Navigating to scanner');
-           return _fadeTransitionPage(context, state, const ScannerScreen());
-         },
-       ),
-
        // What's New screen
        GoRoute(
          path: RouteNames.whatsNew,
@@ -223,8 +211,11 @@ GoRouter createGoRouter() {
 
   // Update current location when route changes
   _routerInstance!.routerDelegate.addListener(() {
-    // ignore: unnecessary_non_null_assertion
-    _currentLocation = _routerInstance!.state!.uri.toString();
+    try {
+      _currentLocation = _routerInstance!.state.uri.toString();
+    } catch (_) {
+      // Match list can be empty during Android intent / platform route handoff.
+    }
   });
 
   return _routerInstance!;

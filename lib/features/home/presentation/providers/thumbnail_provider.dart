@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fadocx/core/services/thumbnail_generation_service.dart';
+import 'package:air_docs_viewer/core/services/thumbnail_generation_service.dart';
 import 'package:logger/logger.dart';
-import 'package:fadocx/features/settings/presentation/providers/settings_providers.dart';
-import 'package:fadocx/features/viewer/data/providers/repository_providers.dart';
+import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
+import 'package:air_docs_viewer/features/viewer/data/providers/repository_providers.dart';
 
 final log = Logger();
 

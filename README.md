@@ -1,330 +1,230 @@
-<div align="center">
-    
-<img src="https://github.com/anonfaded/Fadocx/blob/main/assets/fadocx.png" style="width: 120px; height: auto;">
+# AirDoc Viewer (Air Docs Viewer)
 
-# `>_` Fadocx
+Offline document viewer for Android — PDF, Office, spreadsheets, presentations, images, video, audio, and code files.
 
-**All-in-one document viewer: PDF, Office, spreadsheets, presentations, code files & OCR text extraction — fully offline, zero tracking, open-source.**
+**Private repo:** [privatekeyagent2552/AirDocViewer](https://github.com/privatekeyagent2552/AirDocViewer)  
+**Developer credit (in-app):** Developed by **Dte of Crypto Sys Dev**
 
-[![GitHub all releases](https://img.shields.io/github/downloads/anonfaded/Fadocx/total?label=Downloads&logo=github)](https://github.com/anonfaded/Fadocx/releases/)
-[![Support me on Patreon](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%3DFadedx%26type%3Dpatrons%26suffix%3Dpatrons%2520%257C%2520Shop&style=social)](https://www.patreon.com/cw/Fadedx/shop)
-[![Discord](https://img.shields.io/discord/1263384048194027520?label=Join%20Us%20on%20Discord&logo=discord)](https://discord.gg/kvAZvdkuuN)
-
-</div>
-
-> [!Tip]
-> This project is part of the [FadSec Lab suite](https://github.com/fadsec-lab). <br> Discover our focus on ad-free, privacy-first applications and stay updated on future releases!
-
-| ⭐ | <img src="https://github.com/user-attachments/assets/c730eda3-5887-458d-8df1-971a74807b73" style="width: 100px; height: auto;"> | *More from FadSec Lab:* <br> 🔒 [FadCrypt](https://github.com/anonfaded/FadCrypt) — file/folder encryption <br> 🎥 [FadCam](https://github.com/anonfaded/FadCam) — background video recorder |
-|----|-------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-
-<br>
-
-## The Problem
-
-In today's world, **privacy is becoming a myth**. Every document app on the Play Store comes bundled with hundreds of trackers. Before you can even view a file, you're hit with intrusive ads — breaking focus, wasting your time, and eroding your experience.
-
-Most document solutions rely on cloud-based infrastructure, introducing unnecessary data exposure risks. Your reading habits are tracked. Your device becomes a surveillance point.
-
-## The Solution: Fadocx
-
-**Zero trackers. Zero ads. Zero compromise.**
-
-Fadocx does one thing exceptionally: **view your documents privately, on your device, the way software should work.**
-
-Every file you import is saved to **isolated private storage** — completely hidden from your file manager, inaccessible to other apps, under your complete control. Open **PDFs, Office documents, spreadsheets, presentations, images, videos, audio, and code** with native-quality rendering — all 100% offline, 100% locally.
-
-**Extract text from images with on-device OCR.** Organize by category. Search within files. Track reading time. Everything happens on your phone. Nothing leaves your phone. **No cloud. No tracking. No surveillance.**
-
-And it's **100% open source** — fully auditable, transparent, and built by [FadSec Lab](https://github.com/fadsec-lab) with privacy-first principles as the foundation.
-
-This is what a document viewer should be. This is Fadocx.
-
-> [!Note]
-> **iOS coming soon** — Fadocx for Apple devices is planned for a future release. Stay tuned!
-
-<br>
-
-## `>_` Featured In
-
-- **Article featuring Fadocx** [LinuxEasy](https://www.linuxeasy.org/fadocx-visualizzatore-documenti-open-android/)
-
-<br>
-
-## `>_` 📱 Screenshots
-
-<div align="center">
-
-**Home & Library**
-
-<img src="graphic_assets/screenshots/home.png" width="200" alt="Home"> <img src="graphic_assets/screenshots/library.png" width="200" alt="Library">
-
-<sub>**Home** — Dashboard with stats, recent files, and quick actions</sub> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <sub>**Library** — Browse documents by category with rich thumbnail previews</sub>
-
-<br>
-
-**PDF & Document Viewer**
-
-<img src="graphic_assets/screenshots/pdf_viewer_screen.png" width="200" alt="PDF Viewer"> <img src="graphic_assets/screenshots/document_screen_drawer.png" width="200" alt="PDF Sidebar"> <img src="graphic_assets/screenshots/spotlight_search.png" width="200" alt="Search">
-
-<sub>**PDF Viewer** — Header with metadata, page navigation, copy all pdf (for LLMs), invert, text mode & theme toggle</sub> &nbsp;&nbsp; <sub>**Sidebar** — Pages, search, toc. notes & bookmarks (coming soon)</sub> &nbsp;&nbsp; <sub>**Spotlight Search** — Animated dim+punch-hole find effect</sub>
-
-<br>
-
-**OCR Text Extraction**
-
-<img src="graphic_assets/screenshots/ocr_step0_camera.png" width="200" alt="OCR Camera"> <img src="graphic_assets/screenshots/ocr_step3_results.png" width="200" alt="OCR Results">
-
-<sub>**OCR Camera** — Capture or upload an image for text extraction</sub> &nbsp;&nbsp;&nbsp;&nbsp; <sub>**OCR Results** — Extracted text with bounding rectangles drawn around found content</sub>
-
-<br>
-
-**File Previews**
-
-<img src="graphic_assets/screenshots/sheet.png" width="200" alt="Sheet"> <img src="graphic_assets/screenshots/text_viewer_screen.png" width="200" alt="Text Viewer"> <img src="graphic_assets/screenshots/json_preview.png" width="200" alt="JSON">
-
-<sub>**Sheets** — Sticky headers/rows, zoom, fullscreen, copy cell value</sub> &nbsp;&nbsp; <sub>**Text Viewer** — Font picker (Ubuntu/Mono), copy, theme toggle</sub> &nbsp;&nbsp; <sub>**JSON** — Syntax highlighted code</sub>
-
-<br>
-
-<img src="graphic_assets/screenshots/docx_preview.png" width="200" alt="DOCX"> <img src="graphic_assets/screenshots/ppt_preview.png" width="200" alt="PPT"> <img src="graphic_assets/screenshots/video_preview.png" width="200" alt="Video Player">
-
-<sub>**DOCX** — Formatted document rendering via LibreOfficeKit</sub> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <sub>**PPT** — Presentation rendering with slide navigation</sub> &nbsp;&nbsp;&nbsp;&nbsp; <sub>**Video Player** — Playback speed control and loop mode</sub>
-
-</div>
+> **For AI / Cursor agents:** Read this file **and** [PROJECT_MEMORY.md](PROJECT_MEMORY.md) first. Do **not** assume LibreOffice, Fadocx branding, or GitHub release feeds — those are outdated.
 
 ---
 
-## `>_` Features
+## App identity
 
-<details>
-<summary><strong>📄 Documents, Spreadsheets & Presentations</strong></summary>
+| Item | Value |
+|------|--------|
+| Launcher label | **AirDoc Viewer** |
+| Flutter package | `air_docs_viewer` |
+| Android `applicationId` | `com.airdocsviewer` |
+| Version name | `1.0.0` |
+| Version code | `6` (`android/app/build.gradle.kts`) |
+| Min SDK | **26** (Android 8.0+) |
+| Primary ABI | `arm64-v8a` (universal release APK also includes `armeabi-v7a` + `x86_64`) |
+| Release APK name | **`AirDocsViewer-release.apk`** |
+| Debug APK name | **`AirDocsViewer-debug.apk`** |
 
-- **PDF** via native pdfrx engine — page navigation, text selection & extraction, invert mode, text reader mode, and **spotlight search** (animated dim+punch-hole effect for found terms)
-- **Microsoft Office**: DOCX, DOC, XLSX, XLS, PPT, PPTX
-- **OpenDocument**: ODT, ODS, ODP
-- **Other**: RTF, CSV
-- All Office and OpenDocument formats powered by the embedded **LibreOffice Kit** for desktop-class rendering
-- Apache POI handles native spreadsheet parsing on Android
-- **Sheets & CSV**: Sticky row numbers on left, sticky column headers (A, B, C…), tap to highlight row/column, copy cell values, zoom in/out, fullscreen mode
-- **TXTs & Code**: Adjustable font picker (Ubuntu, Mono), word wrap, copy mode, fast theme toggle
-</details>
+---
 
-<details>
-<summary><strong>🖼️ Images, Audio & Video</strong></summary>
+## Features
 
-- **Images**: PNG, JPG, GIF, WEBP, BMP, SVG — view with real frame extraction from files
-- **Video**: MP4, MKV, AVI, MOV, WEBM, FLV, WMV, 3GP, MXF — video preview with frame thumbnails
-- **Audio**: MP3, M4A, AAC, FLAC, WAV, WMA, OGG, OPUS, AIFF
-</details>
+- View **40+ file formats** offline
+- **Private app storage** under `Android/data/com.airdocsviewer/`
+- **Universal opener** — Android intent filters open docs from Files / other apps
+- Library with categories, search, thumbnails, trash, recent files
+- Import via `file_picker` / SAF
+- In-document search (PDF, text, sheets, Office where supported)
+- **11 languages** (ARB)
+- No ads, no analytics SDKs
+- Strict offline release: `INTERNET` stripped from the main manifest
 
-<details>
-<summary><strong>💻 Code Files</strong></summary>
+---
 
-- **Code/Data**: Java, Python, Shell, HTML, JSON, XML, Markdown, Log
-- Syntax highlighting with color-coded rendering
-- Adjustable font size, word wrap, and reading mode
-</details>
+## Supported formats
 
-<details>
-<summary><strong>🧠 Intelligent OCR & On-Device AI</strong></summary>
+| Category | Formats |
+|----------|---------|
+| PDF | `.pdf` |
+| Documents | `.docx`, `.doc`, `.odt`, `.rtf`, `.txt`, `.epub` |
+| Spreadsheets | `.xlsx`, `.xls`, `.csv`, `.ods` |
+| Presentations | `.ppt`, `.pptx`, `.odp` |
+| Images | `.png`, `.jpg`, `.webp`, `.gif`, `.bmp`, `.svg`, and more |
+| Video / Audio | `.mp4`, `.mkv`, `.mp3`, `.wav`, and more |
+| Code / data | `.json`, `.xml`, `.html`, `.md`, `.py`, `.java`, and more |
 
-- Extract English text from images via Tesseract OCR + OpenCV preprocessing
-- Dual PSM modes and automatic rotation correction for accurate results
-- All AI runs **entirely on-device** — no cloud, no uploads, complete privacy
-- More OCR languages planned for future releases
-</details>
+Canonical registry: `lib/features/viewer/domain/supported_formats.dart`
 
-<details>
-<summary><strong>🌍 Localization</strong></summary>
+---
 
-- Fadocx is translated into 11 languages: 🇬🇧 English, 🇵🇰 Urdu, 🇸🇦 Arabic, 🇩🇪 German, 🇪🇸 Spanish, 🇫🇷 French, 🇮🇳 Hindi, 🇯🇵 Japanese, 🇵🇹 Portuguese, 🇷🇺 Russian, and 🇨🇳 Chinese
-</details>
+## Document stack (no LibreOffice)
 
-<details>
-<summary><strong>📊 Reading Stats Dashboard</strong></summary>
+| Format | Engine |
+|--------|--------|
+| PDF | `pdfrx` → `ModernPdfViewer` |
+| DOCX / PPTX | WebView + offline JS (`assets/viewers/`) |
+| DOC / RTF / ODT / EPUB / PPT / ODP | Structured Dart/native parsers |
+| XLSX / XLS / CSV / ODS | Apache **POI** via MethodChannel |
+| Images / media | Flutter viewers |
+| Text / code | `TextDocumentViewer` |
 
-- Home screen stats card tracks **total documents**, **storage used**, and **reading time** across all files
-- Reading time is measured automatically: when you open a document, a session timer starts. When you leave the viewer, the elapsed time is calculated and added to the file's total
-- Each file tracks its own cumulative reading time, shown in the stats card as hours/minutes
-- Also displays the most recently opened file for quick access
-</details>
+---
 
-<details>
-<summary><strong>📚 Library with Category Folders</strong></summary>
+## Architecture
 
-- Files are auto-organized into categories (PDF, Docs, Sheets, Slides, Images, Video, Audio, Code, Scans, Other) with fast filters and sorting
-- Files are stored in Fadocx's private app storage — no reliance on public folders
-- Browse by category with dedicated chip filters
-- Search by file name or type
-- Sort by latest, oldest, largest, or smallest
-- Switch between grid and list views
-- **Rich dynamic thumbnails** — thumbnails are generated by extracting real document content and rendering it in a readable preview, giving you a genuine look at each file before opening
-</details>
+```
+lib/
+├── main.dart
+├── config/          # theme, go_router
+├── core/            # storage, widgets, layout
+├── services/        # file intents (universal open)
+├── features/
+│   ├── home/        # Home, Library, Browse, Trash, MainShell
+│   ├── onboarding/
+│   ├── settings/    # Hive models + UI
+│   └── viewer/      # parsers + viewers
+└── l10n/            # 11 languages
+```
 
-<details>
-<summary><strong>📊 Rich File Metadata</strong></summary>
+State: **Riverpod** · Routing: **go_router** · Local DB: **Hive**
 
-Every document type shows relevant metadata both in the **document viewer header** and in **thumbnail previews** inside the library — so you can learn about your files without opening them.
+Agent rules: [AGENTS.md](AGENTS.md) · Full memory: [PROJECT_MEMORY.md](PROJECT_MEMORY.md)
 
-| File Type | Metadata Shown |
-|-----------|---------------|
-| **PDF** | Pages, reading time, word count, line count |
-| **DOCX / Text** | Reading time, word count, line count |
-| **Excel / CSV** | Number of rows |
-| **JSON** | Lines, total objects, total arrays |
-| **Code files** | Lines, total classes, total functions |
+---
 
-The metadata header in the viewer gives you instant insight into your document's structure and size, while the library thumbnails surface the same info so you can compare files at a glance.
-</details>
-
-<details>
-<summary><strong>📁 File Management</strong></summary>
-
-- **Import**: Browse your device or use the file picker to import documents into Fadocx's private storage. Files are automatically sorted into the correct category folder
-- **Rename**: Change file names directly in-app with extension preservation
-- **Duplicate**: Create copies with auto‑numbered names ("copy", "copy 2", etc.)
-- **Export**: Save files to Downloads or choose a custom location
-- **Delete**: Soft‑delete with trash bin and restore option
-- **Multi‑select**: Long‑press to enter selection mode for batch operations
-- **File info**: View detailed metadata including size, type, dates, and extracted text
-</details>
-
-<details>
-<summary><strong>🔍 Search & Navigation</strong></summary>
-
-- Full-text search within documents with **spotlight** mode — found terms are highlighted with an animated dim+punch-hole effect that makes them impossible to miss
-- Category chips for quick filtering
-- Sort by date, size
-- Recent files list on home screen
-- Rich thumbnail previews with file metadata for quick visual identification
-</details>
-
-<details>
-<summary><strong>🎨 Themes & Privacy</strong></summary>
-
-- Light and dark themes — system aware or manual toggle
-- **Zero tracking. No analytics. No telemetry.** [Read our privacy policy](PRIVACY.md)
-- 100% offline — no internet permission required for document viewing
-- Open source — fully auditable codebase
-</details>
-
-## `>_` Upcoming Features
-
-- **FadDrive** — End-to-end encrypted cloud sync across devices
-- **Document Conversion** — Convert between formats (PDF ↔ DOCX, etc.)
-- **Document Editing** — Full formatting support
-- **Bookmarks & Annotations** — Mark pages and add notes
-- **AMOLED Black Theme** — Pure black for deeper contrast
-- **More OCR Languages** — Multi-language support beyond English
-- **Desktop & iOS apps** — Same experience on every platform
-
-## `>_` 📖 Privacy
-
-Fadocx is built on a simple principle: **your documents stay yours.**
-
-- [x] 100% offline — no internet required
-- [x] No tracking, analytics, crash logs, or telemetry
-- [x] All AI/OCR runs on-device
-- [x] Open source — audit the code yourself
-
-See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
-
-## `>_` Join Community
-
-Join our [Discord server](https://discord.gg/kvAZvdkuuN) to share ideas, seek help, or connect with other users.
-
-[![Discord](https://img.shields.io/discord/1263384048194027520?label=Join%20Us%20on%20Discord&logo=discord)](https://discord.gg/kvAZvdkuuN)
-
-## `>_` Support & Shop
-
-Support development via Patreon.
-
-[![Support me on Patreon](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%3DFadedx%26type%3Dpatrons%26suffix%3Dpatrons%2520%257C%2520Shop&style=for-the-badge)](https://www.patreon.com/cw/Fadedx/shop)
-
-## `>_` Contributions
-
-We welcome contributions! Before starting any work:
-
-1. **Open an Issue** — Discuss your proposed changes first so we can track progress and avoid duplicated effort.
-2. **Fork & Implement** — Work on your changes in a fork.
-3. **Submit a PR** — Link your pull request to the related issue with a clear description.
-
-<details>
-<summary><strong>Build & Development</strong></summary>
-
-### System Requirements
-
-**Fadocx supports arm64-v8a architecture only** (64-bit ARM). This is due to LibreOffice native code dependencies which are only compiled for arm64-v8a.
-
-- ✅ **arm64-v8a** (64-bit ARM) — Most modern Android devices
-- ❌ **armeabi-v7a** (32-bit ARM) — Not supported (missing LibreOffice native code)
-- ❌ **x86_64** (Intel/AMD) — Not supported (missing LibreOffice native code)
-
-### Clone & Setup (first-time contributors)
+## Setup
 
 ```bash
-# Clone repository
-git clone https://github.com/anonfaded/Fadocx.git
-cd Fadocx
-
-# Install and enable Git LFS (required once per machine)
-git lfs install
-
-# Download LFS objects (ensures large native libraries are populated)
-git lfs pull --all
-
-# Install Dart/Flutter dependencies
 flutter pub get
+dart run pdfrx:remove_wasm_modules
+dart run build_runner build --delete-conflicting-outputs   # after Hive model changes
+flutter run
 ```
 
-> Note: This repository stores a large native library via Git LFS. If you do not run `git lfs install` and `git lfs pull --all` after cloning, the large files will appear as small pointer files instead of the expected binaries.
+---
 
-### Building & Installing
+## Signed release APK (`AirDocsViewer-release.apk`)
 
-Use the interactive build script for easy building and installation:
+### 1. Local signing files (gitignored — never commit)
+
+| File | Purpose |
+|------|---------|
+| `android/upload-keystore.jks` | Release keystore |
+| `android/key.properties` | Passwords + alias for Gradle |
+| `android/keystore-credentials.txt` | Human-readable local notes |
+
+**`android/key.properties` template** (create locally; do not commit):
+
+```properties
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=airdocsviewer
+storeFile=upload-keystore.jks
+```
+
+Key alias: **`airdocsviewer`**
+
+### 2. Option A — Flutter CLI (recommended)
 
 ```bash
-./build.sh
+flutter pub get
+dart run pdfrx:remove_wasm_modules
+flutter build apk --release
 ```
 
-This opens a menu with options to:
-- **Build & Install** — Build and immediately install on connected device
-- **Build Only** — Build APK for manual installation later
-- **Dev: Run** — Hot reload development mode with live debugging
-- **Uninstall** — Remove app from device
+Outputs:
 
-**For detailed build options and commands, see [BUILD_GUIDE.md](BUILD_GUIDE.md).**
+- `build/app/outputs/flutter-apk/app-release.apk` (Flutter name)
+- Copy / IDE mirror: **`android/app/release/AirDocsViewer-release.apk`**
 
-### Manual Build Commands
+Arm64-only split (smaller):
 
 ```bash
-# Build release APK (minified, ~346MB)
-flutter build apk --flavor prod --release --split-per-abi --target-platform android-arm64
-
-# Install on device
-adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-prod-release.apk
-
-# Run with hot reload (development)
-flutter run --flavor prod
+flutter build apk --release --split-per-abi --target-platform android-arm64
 ```
 
-### Build Sizes
+### 3. Option B — Android Studio
 
-| Build Type | Size | Optimization |
-|-----------|------|--------------|
-| Release | ~346MB | R8 minification |
-| Debug | ~400MB | No minification |
+1. **Build → Generate Signed App Bundle or APK → APK**
+2. Key store: `android/upload-keystore.jks`
+3. Alias: `airdocsviewer`
+4. Enter store/key passwords from your local `keystore-credentials.txt`
+5. Build variant: **release**
+6. Destination: `android/app` (Studio writes into `android/app/release/`)
 
-### Local development
+Gradle renames the file via `android/app/build.gradle.kts`:
+
+```text
+AirDocsViewer-release.apk
+AirDocsViewer-debug.apk
+```
+
+### 4. Where to find the shipping APK
+
+| Path | Notes |
+|------|--------|
+| **`android/app/release/AirDocsViewer-release.apk`** | Preferred share / install path |
+| `build/app/outputs/flutter-apk/app-release.apk` | Flutter CLI fat APK (same content when copied) |
+
+Typical size: ~**75–120 MB** (depends on universal vs split ABI). No LibreOffice.
+
+### 5. Verify signing
 
 ```bash
-# Run the beta flavor on a connected device or emulator
-flutter run --flavor beta
+apksigner verify --print-certs android/app/release/AirDocsViewer-release.apk
 ```
 
-</details>
+Expect signer CN like **Air Docs Viewer**, package `com.airdocsviewer`, version `1.0.0` / code `6`.
 
-## `>_` License
+### 6. Install
 
-GNU General Public License v3.0
+```bash
+adb install -r android/app/release/AirDocsViewer-release.apk
+# if multiple devices:
+adb -s DEVICE_SERIAL install -r android/app/release/AirDocsViewer-release.apk
+```
+
+---
+
+## Branding / logo assets
+
+| Asset | Use |
+|-------|-----|
+| `assets/air_docs_logo.png` | Home screen hero |
+| `assets/air_docs_launcher.png` | App icon |
+| `assets/air_docs_logo_splash.png` | Splash (home-style layout) |
+
+Regenerate after logo changes:
+
+```bash
+python tools/_apply_logo.py
+dart run flutter_launcher_icons
+dart run flutter_native_splash:create
+```
+
+Splash/icon background: `#08251F`
+
+---
+
+## Analyze
+
+```bash
+flutter analyze
+```
+
+More build notes: [BUILD_GUIDE.md](BUILD_GUIDE.md) · Privacy: [PRIVACY.md](PRIVACY.md)
+
+---
+
+## Intentional non-goals
+
+- No LibreOffice / LibreOfficeKit in the product binary
+- No Fadocx branding
+- No live update feed
+- Do not commit keystore / `key.properties` / passwords
+
+---
+
+## License
+
+Provided as-is.
+
+© 2026 Crypto Sys Development / Dte of Crypto Sys Dev

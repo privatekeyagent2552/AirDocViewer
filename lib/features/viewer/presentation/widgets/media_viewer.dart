@@ -1,27 +1,23 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:fadocx/l10n/app_localizations.dart';
-
-const _audioFormats = {
-  'aac', 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'wma', 'opus', 'aiff',
-};
-
-const _videoFormats = {
-  'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'm4v', 'mpg', 'mpeg', 'fmp4',
-};
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
+import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
 
 bool isAudioFormat(String path) {
-  final ext = path.split('.').last.toLowerCase();
-  return _audioFormats.contains(ext);
+  final ext = SupportedFormats.extensionOf(path) ?? '';
+  return SupportedFormats.isAudio(ext);
 }
 
 bool isVideoFormat(String path) {
-  final ext = path.split('.').last.toLowerCase();
-  return _videoFormats.contains(ext);
+  final ext = SupportedFormats.extensionOf(path) ?? '';
+  return SupportedFormats.isVideo(ext);
 }
 
-bool isMediaFormat(String path) => isAudioFormat(path) || isVideoFormat(path);
+bool isMediaFormat(String path) {
+  final ext = SupportedFormats.extensionOf(path) ?? '';
+  return SupportedFormats.isMedia(ext);
+}
 
 class MediaViewer extends StatefulWidget {
   final String filePath;

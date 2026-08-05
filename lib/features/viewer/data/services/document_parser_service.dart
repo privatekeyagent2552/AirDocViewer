@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:archive/archive.dart';
-import 'package:fadocx/features/viewer/data/services/word_document_parser_service.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/word_document_parser_service.dart';
 import 'package:xml/xml.dart';
 import 'package:logger/logger.dart';
 
