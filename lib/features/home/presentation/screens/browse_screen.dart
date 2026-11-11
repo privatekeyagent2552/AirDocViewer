@@ -13,6 +13,7 @@ import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'package:air_docs_viewer/config/theme/app_theme.dart';
 import 'package:air_docs_viewer/core/presentation/layout/shell_layout.dart';
 import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/core/services/file_security_validator.dart';
 import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
 import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
@@ -1538,17 +1539,35 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
         var added = 0;
         for (final file in result.files) {
           try {
+            final safeName = FileSecurityValidator.sanitizeFileName(file.name);
+            if (safeName == null) {
+              log.w('Rejected picker file (blocked/unsupported): ${file.name}');
+              continue;
+            }
             if (file.path != null && file.path!.isNotEmpty) {
+              final check = await FileSecurityValidator.validateFile(
+                file.path!,
+                claimedName: safeName,
+              );
+              if (!check.isValid) {
+                log.w('Rejected picker file ${file.name}: ${check.reason}');
+                continue;
+              }
               _selectedFilePaths.add(file.path!);
               added++;
-              log.d('Selected: ${file.name}');
+              log.d('Selected: $safeName');
               continue;
             }
             // Some Android 8–10 OEMs return SAF picks with null path — write bytes.
             if (file.bytes != null && file.bytes!.isNotEmpty) {
-              final safeName = file.name.isNotEmpty
-                  ? file.name
-                  : 'picked_${DateTime.now().millisecondsSinceEpoch}';
+              final bytesCheck = FileSecurityValidator.validateBytes(
+                file.bytes!,
+                fileName: safeName,
+              );
+              if (!bytesCheck.isValid) {
+                log.w('Rejected picker bytes ${file.name}: ${bytesCheck.reason}');
+                continue;
+              }
               final out = File(
                 '${tempDir.path}${Platform.pathSeparator}$safeName',
               );
@@ -1651,24 +1670,38 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
 
       for (final filePath in _selectedFilePaths) {
         try {
-          final fileName = filePath.split('/').last;
-          final fileExtension = _getFileExtension(fileName);
+          final rawName = filePath.split('/').last;
+          final safeName = FileSecurityValidator.sanitizeFileName(rawName);
+          if (safeName == null) {
+            log.w('Skipped import — blocked name: $rawName');
+            continue;
+          }
+          final preCheck = await FileSecurityValidator.validateFile(
+            filePath,
+            claimedName: safeName,
+          );
+          if (!preCheck.isValid) {
+            log.w('Skipped import $rawName: ${preCheck.reason}');
+            continue;
+          }
 
           // Copy file into app's internal storage
-          final cachedFile = await StorageService.cacheDocument(filePath, fileName);
-          
+          final cachedFile =
+              await StorageService.cacheDocument(filePath, safeName);
+
           int fileSizeBytes = 0;
           try {
             fileSizeBytes = await cachedFile.length();
           } catch (e) {
-            log.w('ΓÜá∩╕Å  Could not calculate file size for $fileName: $e');
+            log.w('Could not calculate file size for $safeName: $e');
           }
 
+          final fileExtension = _getFileExtension(safeName);
           final recentFile = RecentFile(
             id: DateTime.now().millisecondsSinceEpoch.toString() +
                 _selectedFilePaths.toList().indexOf(filePath).toString(),
             filePath: cachedFile.path,
-            fileName: fileName,
+            fileName: safeName,
             fileType: fileExtension,
             fileSizeBytes: fileSizeBytes,
             dateOpened: now,
@@ -1679,9 +1712,9 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
 
           await mutator.addRecentFile(recentFile);
           imported++;
-          log.d('  Γ£ô Imported and cached: $fileName to ${cachedFile.path}');
+          log.d('Imported and cached: $safeName to ${cachedFile.path}');
         } catch (e) {
-          log.e('  Γ¥î Failed to import file: $e', error: e);
+          log.e('Failed to import file: $e', error: e);
         }
       }
 

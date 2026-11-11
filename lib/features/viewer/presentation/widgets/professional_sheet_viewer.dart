@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/pinch_zoom_listener.dart';
 import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Professional Spreadsheet Viewer — virtualized for 50k+ rows.
@@ -8,20 +9,26 @@ class ProfessionalSheetViewer extends StatefulWidget {
   final SheetEntity sheet;
   final void Function(String?, String)? onSelectionChanged;
   final double initialZoom;
+  final ValueChanged<double>? onZoomChanged;
+
+  static const double minZoom = 0.3;
+  static const double maxZoom = 3.0;
+  static const double zoomStep = 0.15;
 
   const ProfessionalSheetViewer({
     required this.sheet,
     this.onSelectionChanged,
     this.initialZoom = 1.0,
+    this.onZoomChanged,
     super.key,
   });
 
   @override
   State<ProfessionalSheetViewer> createState() =>
-      _ProfessionalSheetViewerState();
+      ProfessionalSheetViewerState();
 }
 
-class _ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
+class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
   late ScrollController _hController;
   late ScrollController _vDataController;
   late ScrollController _vRowController;
@@ -29,6 +36,28 @@ class _ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
   bool _syncingV = false;
 
   double _zoom = 1.0;
+
+  double get currentZoom =>
+      _zoom.clamp(ProfessionalSheetViewer.minZoom, ProfessionalSheetViewer.maxZoom);
+
+  void zoomIn() => _applyZoom(currentZoom + ProfessionalSheetViewer.zoomStep);
+
+  void zoomOut() => _applyZoom(currentZoom - ProfessionalSheetViewer.zoomStep);
+
+  void fitToWidth() {
+    _applyZoom(1.0);
+    if (_hController.hasClients) _hController.jumpTo(0);
+    if (_vDataController.hasClients) _vDataController.jumpTo(0);
+    if (_vRowController.hasClients) _vRowController.jumpTo(0);
+  }
+
+  void _applyZoom(double zoom) {
+    final next =
+        zoom.clamp(ProfessionalSheetViewer.minZoom, ProfessionalSheetViewer.maxZoom);
+    if ((next - _zoom).abs() < 0.005) return;
+    setState(() => _zoom = next);
+    widget.onZoomChanged?.call(next);
+  }
 
   // Selection
   int? _selRow;
@@ -317,7 +346,10 @@ class _ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
     final fontSize = (15.0 * _zoom).clamp(8.0, 28.0);
     final hdrFontSize = (13.0 * _zoom).clamp(8.0, 24.0);
 
-    return Column(
+    return PinchZoomListener(
+      currentZoom: () => currentZoom,
+      onZoom: _applyZoom,
+      child: Column(
       children: [
         Expanded(
           child: GestureDetector(
@@ -409,6 +441,7 @@ class _ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
           ),
         ),
       ],
+    ),
     );
   }
 

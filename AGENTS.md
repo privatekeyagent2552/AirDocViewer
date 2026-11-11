@@ -129,7 +129,7 @@ When updating app branding or icons, follow this workflow:
 
 ## Architecture & Build Targets
 
-**Air Docs Viewer targets arm64-v8a** (64-bit ARM). Prefer that ABI for release testing.
+**Air Docs Viewer release APK** ships **arm64-v8a + armeabi-v7a** in one named APK (`AirDocsViewer-release.apk`, ~85–90 MB). Covers 64-bit and 32-bit ARM phones. x86_64 (emulators) is excluded for size.
 
 There is **no LibreOfficeKit** in the current product. Office docs use WebView JS (DOCX/PPTX), Dart/native structured parsers, and Apache POI for spreadsheets. See root [README.md](README.md) for the authoritative stack.
 
@@ -140,13 +140,14 @@ There is **no LibreOfficeKit** in the current product. Office docs use WebView J
 - **App Name:** Air Docs Viewer
 - **Gradle APK names:** `AirDocsViewer-release.apk` / `AirDocsViewer-debug.apk`
 - **Run:** `flutter run`
-- **Build:** `flutter build apk --release --split-per-abi --target-platform android-arm64`
+- **Build:** `flutter build apk --release --target-platform android-arm,android-arm64`
 
 ### Build sizes (approx.)
 
 | Build Type | Size | Notes |
 |-----------|------|--------|
-| Release | ~75–80MB | R8 + shrink resources |
+| Release (32+64 ARM) | ~85–90 MB | Default shipping APK |
+| Release (arm64 only) | ~68–75 MB | Optional; drop `android-arm` |
 | Debug | larger | No minify |
 
 ### Icons / splash

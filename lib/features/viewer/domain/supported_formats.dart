@@ -1,5 +1,6 @@
 /// Canonical registry of every format Air Docs Viewer can open.
 ///
+/// VAPT: strict allowlist only — PDF + core Office + CSV + TXT.
 /// Import, Browse scan, intent filters, DocumentViewerNotifier routing, and
 /// ViewerScreen selection MUST all derive from this file so the app never
 /// advertises an extension it cannot view.
@@ -10,19 +11,19 @@ enum ViewerKind {
   /// DOCX / PPTX offline WebView JS visual renderer (with structured fallback).
   richWeb,
 
-  /// Native / Dart structured blocks (DOC, RTF, ODT, PPT, EPUB, …).
+  /// Native / Dart structured blocks (DOC, PPT, …).
   structured,
 
   /// Spreadsheet table viewer.
   spreadsheet,
 
-  /// Plain / code text viewer.
+  /// Plain text viewer.
   text,
 
-  /// Image viewer.
+  /// Image viewer (unused — images not in allowlist).
   image,
 
-  /// Audio / video media player.
+  /// Audio / video media player (unused — media not in allowlist).
   media,
 }
 
@@ -49,16 +50,28 @@ class FormatSpec {
   final ViewerKind viewerKind;
   final OpenStrategy openStrategy;
 
-  /// Browse / Home category key: pdf, documents, spreadsheets, presentations,
-  /// images, media, code, other.
+  /// Browse / Home category key: pdf, documents, spreadsheets, presentations.
   final String category;
 
   String get formatLabel => extension.toUpperCase();
 }
 
-/// Single source of truth for supported file extensions.
+/// Single source of truth for supported file extensions (strict allowlist).
 abstract final class SupportedFormats {
   SupportedFormats._();
+
+  /// Only these extensions may be imported, picked, viewed, or opened via intent.
+  static const Set<String> allowlist = {
+    'pdf',
+    'doc',
+    'docx',
+    'ppt',
+    'pptx',
+    'xls',
+    'xlsx',
+    'csv',
+    'txt',
+  };
 
   static const pdf = FormatSpec(
     extension: 'pdf',
@@ -67,7 +80,6 @@ abstract final class SupportedFormats {
     category: 'pdf',
   );
 
-  // ── Word / text docs ────────────────────────────────────────────────
   static const docx = FormatSpec(
     extension: 'docx',
     viewerKind: ViewerKind.richWeb,
@@ -80,32 +92,13 @@ abstract final class SupportedFormats {
     openStrategy: OpenStrategy.parserFirst,
     category: 'documents',
   );
-  static const odt = FormatSpec(
-    extension: 'odt',
-    viewerKind: ViewerKind.structured,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'documents',
-  );
-  static const ott = FormatSpec(
-    extension: 'ott',
-    viewerKind: ViewerKind.structured,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'documents',
-  );
-  static const rtf = FormatSpec(
-    extension: 'rtf',
-    viewerKind: ViewerKind.structured,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'documents',
-  );
-  static const epub = FormatSpec(
-    extension: 'epub',
-    viewerKind: ViewerKind.structured,
+  static const txt = FormatSpec(
+    extension: 'txt',
+    viewerKind: ViewerKind.text,
     openStrategy: OpenStrategy.parserFirst,
     category: 'documents',
   );
 
-  // ── Presentations ───────────────────────────────────────────────────
   static const pptx = FormatSpec(
     extension: 'pptx',
     viewerKind: ViewerKind.richWeb,
@@ -114,18 +107,13 @@ abstract final class SupportedFormats {
   );
   static const ppt = FormatSpec(
     extension: 'ppt',
-    viewerKind: ViewerKind.structured,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'presentations',
-  );
-  static const odp = FormatSpec(
-    extension: 'odp',
-    viewerKind: ViewerKind.structured,
-    openStrategy: OpenStrategy.parserFirst,
+    // Try visual path first; OLE binary .ppt cannot use the PPTX JS engine and
+    // falls back to slide-card text UI (colors/charts need .pptx).
+    viewerKind: ViewerKind.richWeb,
+    openStrategy: OpenStrategy.visualWithFallback,
     category: 'presentations',
   );
 
-  // ── Spreadsheets ────────────────────────────────────────────────────
   static const xlsx = FormatSpec(
     extension: 'xlsx',
     viewerKind: ViewerKind.spreadsheet,
@@ -144,134 +132,18 @@ abstract final class SupportedFormats {
     openStrategy: OpenStrategy.parserFirst,
     category: 'spreadsheets',
   );
-  static const ods = FormatSpec(
-    extension: 'ods',
-    viewerKind: ViewerKind.spreadsheet,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'spreadsheets',
-  );
 
-  // ── Images Flutter Image.file can show ──────────────────────────────
-  static const _imageExts = {
-    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico',
+  static final Map<String, FormatSpec> _byExt = {
+    pdf.extension: pdf,
+    docx.extension: docx,
+    doc.extension: doc,
+    txt.extension: txt,
+    pptx.extension: pptx,
+    ppt.extension: ppt,
+    xlsx.extension: xlsx,
+    xls.extension: xls,
+    csv.extension: csv,
   };
-
-  // Extra image / raster types we advertise but may only show via file
-  // decode attempt (error UI if decode fails).
-  static const _extraImageExts = {
-    'tif', 'tiff', 'heic', 'heif', 'avif', 'psd',
-  };
-
-  // ── Audio / video ───────────────────────────────────────────────────
-  static const _audioExts = {
-    'aac', 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'wma', 'opus', 'aiff',
-  };
-  static const _videoExts = {
-    'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'm4v',
-    'mpg', 'mpeg', 'fmp4',
-  };
-
-  // ── Plain / code / config text ──────────────────────────────────────
-  static const _textExts = {
-    'txt', 'md', 'log', 'html', 'htm',
-    'java', 'py', 'sh', 'bash',
-    'dart', 'kt', 'kts', 'js', 'ts', 'jsx', 'tsx',
-    'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'rb', 'swift', 'go', 'rs',
-    'sql', 'yaml', 'yml', 'toml', 'gradle', 'properties', 'ini', 'conf',
-    'bat', 'cmd', 'ps1', 'r',
-    'atom',
-  };
-
-  // ── Structured data viewed as text / light table ────────────────────
-  static const json = FormatSpec(
-    extension: 'json',
-    viewerKind: ViewerKind.text,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'code',
-  );
-  static const xml = FormatSpec(
-    extension: 'xml',
-    viewerKind: ViewerKind.text,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'code',
-  );
-  static const fadrec = FormatSpec(
-    extension: 'fadrec',
-    viewerKind: ViewerKind.text,
-    openStrategy: OpenStrategy.parserFirst,
-    category: 'code',
-  );
-
-  static final Map<String, FormatSpec> _byExt = () {
-    final map = <String, FormatSpec>{
-      pdf.extension: pdf,
-      docx.extension: docx,
-      doc.extension: doc,
-      odt.extension: odt,
-      ott.extension: ott,
-      rtf.extension: rtf,
-      epub.extension: epub,
-      pptx.extension: pptx,
-      ppt.extension: ppt,
-      odp.extension: odp,
-      xlsx.extension: xlsx,
-      xls.extension: xls,
-      csv.extension: csv,
-      ods.extension: ods,
-      json.extension: json,
-      xml.extension: xml,
-      fadrec.extension: fadrec,
-    };
-
-    for (final e in _imageExts) {
-      map[e] = FormatSpec(
-        extension: e,
-        viewerKind: ViewerKind.image,
-        openStrategy: OpenStrategy.direct,
-        category: 'images',
-      );
-    }
-    for (final e in _extraImageExts) {
-      map[e] = FormatSpec(
-        extension: e,
-        viewerKind: ViewerKind.image,
-        openStrategy: OpenStrategy.direct,
-        category: 'images',
-      );
-    }
-    for (final e in _audioExts) {
-      map[e] = FormatSpec(
-        extension: e,
-        viewerKind: ViewerKind.media,
-        openStrategy: OpenStrategy.direct,
-        category: 'audio',
-      );
-    }
-    for (final e in _videoExts) {
-      map[e] = FormatSpec(
-        extension: e,
-        viewerKind: ViewerKind.media,
-        openStrategy: OpenStrategy.direct,
-        category: 'video',
-      );
-    }
-    for (final e in _textExts) {
-      map[e] = FormatSpec(
-        extension: e,
-        viewerKind: ViewerKind.text,
-        openStrategy: OpenStrategy.parserFirst,
-        category: 'code',
-      );
-    }
-    // Plain TXT is documents category, not code.
-    map['txt'] = const FormatSpec(
-      extension: 'txt',
-      viewerKind: ViewerKind.text,
-      openStrategy: OpenStrategy.parserFirst,
-      category: 'documents',
-    );
-    return map;
-  }();
 
   /// Every supported extension (lowercase, no dot).
   static List<String> get allExtensions =>
@@ -308,17 +180,13 @@ abstract final class SupportedFormats {
 
   static ViewerKind? viewerKindOf(String extension) => of(extension)?.viewerKind;
 
-  static bool isAudio(String extension) => _audioExts.contains(extension.toLowerCase());
+  static bool isAudio(String extension) => false;
 
-  static bool isVideo(String extension) => _videoExts.contains(extension.toLowerCase());
+  static bool isVideo(String extension) => false;
 
-  static bool isMedia(String extension) =>
-      isAudio(extension) || isVideo(extension);
+  static bool isMedia(String extension) => false;
 
-  static bool isImage(String extension) {
-    final e = extension.toLowerCase();
-    return _imageExts.contains(e) || _extraImageExts.contains(e);
-  }
+  static bool isImage(String extension) => false;
 
   static bool isSpreadsheet(String extension) {
     final kind = of(extension)?.viewerKind;

@@ -24,6 +24,7 @@ class DocumentViewerFactory {
     void Function(String? cellRef, String value)? onSheetSelectionChanged,
     Key? sheetViewerKey,
     double sheetZoom = 1.0,
+    ValueChanged<double>? onSheetZoomChanged,
   }) {
     final format = document.format.toUpperCase();
     final ext = SupportedFormats.extensionOf(filePath) ??
@@ -37,6 +38,7 @@ class DocumentViewerFactory {
         onSheetSelectionChanged,
         sheetViewerKey,
         zoom: sheetZoom,
+        onZoomChanged: onSheetZoomChanged,
       );
     }
     if (kind == ViewerKind.pdf || format == 'PDF') {
@@ -62,7 +64,7 @@ class DocumentViewerFactory {
 
   static Widget _buildSpreadsheetViewer(ParsedDocumentEntity document,
       void Function(String?, String)? onSelectionChanged, Key? sheetViewerKey,
-      {double zoom = 1.0}) {
+      {double zoom = 1.0, ValueChanged<double>? onZoomChanged}) {
     if (document.sheets.isEmpty) {
       return Center(
         child: Builder(
@@ -79,6 +81,7 @@ class DocumentViewerFactory {
               onSelectionChanged,
               sheetViewerKey,
               zoom: zoom,
+              onZoomChanged: onZoomChanged,
             )
           : DefaultTabController(
               length: document.sheetCount,
@@ -104,6 +107,7 @@ class DocumentViewerFactory {
                                 ? sheetViewerKey
                                 : ValueKey('sheet_${i}_${document.sheets[i].name}'),
                             zoom: zoom,
+                            onZoomChanged: onZoomChanged,
                           ),
                       ],
                     ),
@@ -116,7 +120,7 @@ class DocumentViewerFactory {
 
   static Widget _buildSheetTable(SheetEntity sheet,
       void Function(String?, String)? onSelectionChanged, Key? sheetViewerKey,
-      {double zoom = 1.0}) {
+      {double zoom = 1.0, ValueChanged<double>? onZoomChanged}) {
     if (sheet.rows.isEmpty) {
       return Center(
         child: Builder(
@@ -130,6 +134,7 @@ class DocumentViewerFactory {
       sheet: sheet,
       onSelectionChanged: onSelectionChanged,
       initialZoom: zoom,
+      onZoomChanged: onZoomChanged,
     );
   }
 

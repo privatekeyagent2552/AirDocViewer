@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -18,6 +19,8 @@ import 'package:air_docs_viewer/features/viewer/presentation/widgets/media_viewe
 import 'package:video_player/video_player.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/document_viewer_factory.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/image_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/presentation_slides_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/professional_sheet_viewer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/viewer_zoom_toolbar.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/providers/document_viewer_notifier.dart';
 import 'package:air_docs_viewer/features/home/presentation/widgets/home_drawer.dart';
@@ -79,6 +82,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   // Sheet selection state for bottom panel display
   double _sheetZoom = 1.0;
   double _pdfZoom = 1.0;
+  double _officeZoom = 1.0;
+  double _textZoom = 1.0;
+  double _slidesZoom = 1.0;
   double _imageZoom = 1.0;
   String? _sheetCellRef;
   String _sheetCellValue = '';
@@ -88,15 +94,29 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   late AnimationController _topBarController;
   late AnimationController _bottomPanelController;
   late GlobalKey<State<ModernPdfViewer>> _pdfViewerKey;
+  late GlobalKey<OfficeVisualViewerState> _officeViewerKey;
   late GlobalKey<ImageViewerState> _imageViewerKey;
-  late GlobalKey<State<TextDocumentViewer>> _textViewerKey;
+  late GlobalKey<TextDocumentViewerState> _textViewerKey;
+  late GlobalKey<PresentationSlidesViewerState> _slidesViewerKey;
   late GlobalKey<RichStructuredDocumentViewerState> _structuredViewerKey;
   late GlobalKey<MediaViewerState> _mediaViewerKey;
-  late GlobalKey _sheetViewerKey;
+  late GlobalKey<ProfessionalSheetViewerState> _sheetViewerKey;
   static const double _kDragCloseThreshold = 100.0;
 
   /// Path of a document whose rich WebView render failed; falls back to structured/text.
   String? _richFailedForPath;
+
+  /// ZIP/OOXML (PK..) — real .pptx. Used so we never treat a .pptx as text-only.
+  bool _fileIsZipOoxml(String path) {
+    try {
+      final raf = File(path).openSync();
+      final bytes = raf.readSync(4);
+      raf.close();
+      return bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B;
+    } catch (_) {
+      return false;
+    }
+  }
 
   bool _isPdfDocument() {
     final ext = SupportedFormats.extensionOf(widget.filePath) ??
@@ -560,11 +580,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void initState() {
     super.initState();
     _pdfViewerKey = GlobalKey<State<ModernPdfViewer>>();
+    _officeViewerKey = GlobalKey<OfficeVisualViewerState>();
     _imageViewerKey = GlobalKey<ImageViewerState>();
-    _textViewerKey = GlobalKey<State<TextDocumentViewer>>();
+    _textViewerKey = GlobalKey<TextDocumentViewerState>();
+    _slidesViewerKey = GlobalKey<PresentationSlidesViewerState>();
     _structuredViewerKey = GlobalKey<RichStructuredDocumentViewerState>();
     _mediaViewerKey = GlobalKey<MediaViewerState>();
-    _sheetViewerKey = GlobalKey();
+    _sheetViewerKey = GlobalKey<ProfessionalSheetViewerState>();
     _menuController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -703,13 +725,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       '';
                   final fromDoc =
                       docState.document?.format.toUpperCase() ?? '';
+                  final isPptFamily = pathExt == 'ppt' ||
+                      pathExt == 'pptx' ||
+                      fromDoc == 'PPT' ||
+                      fromDoc == 'PPTX';
+                  // Bytes decide: ZIP = real PPTX visual. Never fake slides.
+                  final pptxZip = isPptFamily &&
+                      _fileIsZipOoxml(widget.filePath);
                   final richWeb =
                       SupportedFormats.isRichWeb(pathExt) ||
-                      SupportedFormats.isRichWeb(fromDoc.toLowerCase());
+                      SupportedFormats.isRichWeb(fromDoc.toLowerCase()) ||
+                      pptxZip;
                   final useVisual = richWeb &&
                       !docState.hasError &&
-                      !docState.usingFallback &&
-                      _richFailedForPath != widget.filePath;
+                      (pptxZip ||
+                          (!docState.usingFallback &&
+                              _richFailedForPath != widget.filePath));
 
                   if (useVisual) {
                     final kind = (fromDoc == 'DOCX' || pathExt == 'docx')
@@ -717,26 +748,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                         : OfficeVisualKind.presentation;
                     return Padding(
                       padding: _contentOverlayPadding(context),
-                      child: OfficeVisualViewer(
-                        key: ValueKey('office_visual_${widget.filePath}'),
-                        filePath: widget.filePath,
+                      child: _buildOfficeVisualWithZoom(
                         kind: kind,
-                        backgroundColor: const Color(0xFFF5F5F5),
-                        onRendered: () {
-                          ref.read(documentViewerProvider.notifier).markReady();
-                        },
-                        onError: (message) {
-                          _log.w(
-                            'Office visual failed: $message — loading fallback',
-                          );
-                          if (!mounted) return;
-                          setState(() => _richFailedForPath = widget.filePath);
-                          unawaited(
-                            ref
-                                .read(documentViewerProvider.notifier)
-                                .loadStructuredFallback(),
-                          );
-                        },
                       ),
                     );
                   }
@@ -955,6 +968,186 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
   }
 
+  /// Floating zoom pill — shared by PDF, Office, text, and spreadsheets.
+  Widget _buildFloatingZoomToolbar({
+    required double zoom,
+    required double minZoom,
+    required double maxZoom,
+    required VoidCallback? onZoomOut,
+    required VoidCallback? onZoomIn,
+    required VoidCallback? onFit,
+  }) {
+    return Positioned(
+      right: 12,
+      bottom: 88,
+      child: SafeArea(
+        child: ViewerZoomToolbar(
+          zoom: zoom,
+          minZoom: minZoom,
+          maxZoom: maxZoom,
+          fitTooltip: 'Fit width / reset',
+          onZoomOut: onZoomOut ?? () {},
+          onZoomIn: onZoomIn ?? () {},
+          onFit: onFit,
+        ),
+      ),
+    );
+  }
+
+  /// DOCX/PPTX visual viewer with floating zoom (same as PDF).
+  Widget _buildOfficeVisualWithZoom({required OfficeVisualKind kind}) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: OfficeVisualViewer(
+            key: _officeViewerKey,
+            filePath: widget.filePath,
+            kind: kind,
+            backgroundColor: kind == OfficeVisualKind.word
+                ? const Color(0xFFF5F5F5)
+                : const Color(0xFF111111),
+            onRendered: () {
+              ref.read(documentViewerProvider.notifier).markReady();
+            },
+            onError: (message) {
+              _log.w(
+                'Office visual failed: $message — loading fallback',
+              );
+              // Real .pptx must stay on the visual renderer. Fallback
+              // cards look like a different (wrong) presentation.
+              if (kind == OfficeVisualKind.presentation &&
+                  !message.contains('Legacy .ppt')) {
+                return;
+              }
+              if (!mounted) return;
+              setState(() => _richFailedForPath = widget.filePath);
+              unawaited(
+                ref
+                    .read(documentViewerProvider.notifier)
+                    .loadStructuredFallback(),
+              );
+            },
+            onZoomChanged: (zoom) {
+              if (!mounted) return;
+              if ((zoom - _officeZoom).abs() < 0.005) return;
+              setState(() => _officeZoom = zoom);
+            },
+          ),
+        ),
+        _buildFloatingZoomToolbar(
+          zoom: _officeZoom,
+          minZoom: 0.25,
+          maxZoom: 3.0,
+          onZoomOut: () => _officeViewerKey.currentState?.zoomOut(),
+          onZoomIn: () => _officeViewerKey.currentState?.zoomIn(),
+          onFit: () => _officeViewerKey.currentState?.fitToWidth(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextViewerWithZoom({
+    required String textContent,
+    required String format,
+  }) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: TextDocumentViewer(
+            key: _textViewerKey,
+            textContent: textContent,
+            onTap: _toggleControls,
+            onSearchHighlight: _onSearchHighlight,
+            zoom: _textZoom,
+            onZoomChanged: (zoom) {
+              if (!mounted) return;
+              if ((zoom - _textZoom).abs() < 0.005) return;
+              setState(() => _textZoom = zoom);
+            },
+            wordWrap: _textWordWrap,
+            useMonoFont: _textFontIsMonoFont,
+            language: _syntaxHighlightEnabled ? _languageForFormat(format) : null,
+          ),
+        ),
+        _buildFloatingZoomToolbar(
+          zoom: _textZoom,
+          minZoom: TextDocumentViewer.minZoom,
+          maxZoom: TextDocumentViewer.maxZoom,
+          onZoomOut: () => _textViewerKey.currentState?.zoomOut(),
+          onZoomIn: () => _textViewerKey.currentState?.zoomIn(),
+          onFit: () => _textViewerKey.currentState?.fitToWidth(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpreadsheetWithZoom({required ParsedDocumentEntity document}) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: DocumentViewerFactory.createViewer(
+            document: document,
+            filePath: widget.filePath,
+            onTap: _toggleControls,
+            onSheetSelectionChanged: (cellRef, value) {
+              setState(() {
+                _sheetCellRef = cellRef;
+                _sheetCellValue = value;
+              });
+            },
+            sheetViewerKey: _sheetViewerKey,
+            sheetZoom: _sheetZoom,
+            onSheetZoomChanged: (zoom) {
+              if (!mounted) return;
+              if ((zoom - _sheetZoom).abs() < 0.005) return;
+              setState(() => _sheetZoom = zoom);
+            },
+          ),
+        ),
+        _buildFloatingZoomToolbar(
+          zoom: _sheetZoom,
+          minZoom: ProfessionalSheetViewer.minZoom,
+          maxZoom: ProfessionalSheetViewer.maxZoom,
+          onZoomOut: () => _sheetViewerKey.currentState?.zoomOut(),
+          onZoomIn: () => _sheetViewerKey.currentState?.zoomIn(),
+          onFit: () => _sheetViewerKey.currentState?.fitToWidth(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPresentationSlidesWithZoom({
+    required ParsedDocumentEntity document,
+  }) {
+    final isLegacyPpt = document.format.toUpperCase() == 'PPT';
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: PresentationSlidesViewer(
+            key: _slidesViewerKey,
+            slides: document.slides,
+            onTap: _toggleControls,
+            zoom: _slidesZoom,
+            showLegacyNotice: isLegacyPpt,
+            onZoomChanged: (zoom) {
+              if (!mounted) return;
+              if ((zoom - _slidesZoom).abs() < 0.005) return;
+              setState(() => _slidesZoom = zoom);
+            },
+          ),
+        ),
+        _buildFloatingZoomToolbar(
+          zoom: _slidesZoom,
+          minZoom: PresentationSlidesViewer.minZoom,
+          maxZoom: PresentationSlidesViewer.maxZoom,
+          onZoomOut: () => _slidesViewerKey.currentState?.zoomOut(),
+          onZoomIn: () => _slidesViewerKey.currentState?.zoomIn(),
+          onFit: () => _slidesViewerKey.currentState?.fitToWidth(),
+        ),
+      ],
+    );
+  }
+
   Widget _buildContentViewer({required ParsedDocumentEntity document}) {
     final format = document.format.toUpperCase();
     _log.d(
@@ -964,69 +1157,86 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
     // For PDFs, use ModernPdfViewer with GlobalKey to access navigation
     if (format == 'PDF') {
-      return ModernPdfViewer(
-        key: _pdfViewerKey,
-        filePath: widget.filePath,
-        fileName: widget.fileName,
-        invertColors: _invertColors,
-        textMode: _textMode,
-        onTap: _toggleControls,
-        onInvertToggle: () {
-          setState(() => _invertColors = !_invertColors);
-        },
-        onTextModeToggle: () {
-          setState(() => _textMode = !_textMode);
-        },
-        onPageChanged: (current, total) {
-          if (total > 0) {
-            setState(() {
-              _currentPage = current;
-              _totalPages = total;
-            });
-          }
-        },
-        onSearchHighlight: _onSearchHighlight,
-        initialWordCount: document.wordCount,
-        initialLineCount: document.lineCount,
-        onTextStatsChanged: (wordCount, lineCount) {
-          if (!mounted) return;
-          setState(() {
-            _documentWordCount = wordCount;
-            _documentLineCount = lineCount;
-          });
-          _cachePdfTextStats(document, wordCount, lineCount);
-        },
-        onZoomChanged: (zoom) {
-          if (!mounted) return;
-          setState(() => _pdfZoom = zoom);
-        },
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: ModernPdfViewer(
+              key: _pdfViewerKey,
+              filePath: widget.filePath,
+              fileName: widget.fileName,
+              invertColors: _invertColors,
+              textMode: _textMode,
+              onTap: _toggleControls,
+              onInvertToggle: () {
+                setState(() => _invertColors = !_invertColors);
+              },
+              onTextModeToggle: () {
+                setState(() => _textMode = !_textMode);
+              },
+              onPageChanged: (current, total) {
+                if (total > 0) {
+                  setState(() {
+                    _currentPage = current;
+                    _totalPages = total;
+                  });
+                }
+              },
+              onSearchHighlight: _onSearchHighlight,
+              initialWordCount: document.wordCount,
+              initialLineCount: document.lineCount,
+              onTextStatsChanged: (wordCount, lineCount) {
+                if (!mounted) return;
+                setState(() {
+                  _documentWordCount = wordCount;
+                  _documentLineCount = lineCount;
+                });
+                _cachePdfTextStats(document, wordCount, lineCount);
+              },
+              onZoomChanged: (zoom) {
+                if (!mounted) return;
+                if ((zoom - _pdfZoom).abs() < 0.005) return;
+                setState(() => _pdfZoom = zoom);
+              },
+            ),
+          ),
+          // Floating zoom pill (same as DOCX) — not in the bottom page bar.
+          if (!_textMode)
+            _buildFloatingZoomToolbar(
+              zoom: _pdfZoom,
+              minZoom: 0.25,
+              maxZoom: 8.0,
+              onZoomOut: () =>
+                  (_pdfViewerKey.currentState as dynamic)?.zoomOut(),
+              onZoomIn: () =>
+                  (_pdfViewerKey.currentState as dynamic)?.zoomIn(),
+              onFit: () =>
+                  (_pdfViewerKey.currentState as dynamic)?.fitToWidth(),
+            ),
+        ],
       );
     }
 
-    // DOCX / PPTX: pure-Flutter visual when not in fallback mode.
+    // ZIP .pptx always uses the visual renderer (real slides, not text cards).
     final formatExt = format.toLowerCase();
-    if (SupportedFormats.isRichWeb(formatExt) &&
-        !ref.read(documentViewerProvider).usingFallback &&
-        _richFailedForPath != widget.filePath) {
-      return OfficeVisualViewer(
-        key: ValueKey('office_visual_${widget.filePath}'),
-        filePath: widget.filePath,
+    final pptxZip = (format == 'PPT' ||
+            format == 'PPTX' ||
+            formatExt == 'ppt' ||
+            formatExt == 'pptx') &&
+        _fileIsZipOoxml(widget.filePath);
+    if (pptxZip ||
+        (SupportedFormats.isRichWeb(formatExt) &&
+            !ref.read(documentViewerProvider).usingFallback &&
+            _richFailedForPath != widget.filePath)) {
+      return _buildOfficeVisualWithZoom(
         kind: format == 'DOCX'
             ? OfficeVisualKind.word
             : OfficeVisualKind.presentation,
-        backgroundColor: const Color(0xFFF5F5F5),
-        onRendered: () {
-          ref.read(documentViewerProvider.notifier).markReady();
-        },
-        onError: (message) {
-          _log.w('Office visual failed for $format: $message — loading fallback');
-          if (!mounted) return;
-          setState(() => _richFailedForPath = widget.filePath);
-          unawaited(
-            ref.read(documentViewerProvider.notifier).loadStructuredFallback(),
-          );
-        },
       );
+    }
+
+    // Legacy OLE .ppt only: honest text, labelled as not original design.
+    if (document.slides.isNotEmpty && format == 'PPT' && !pptxZip) {
+      return _buildPresentationSlidesWithZoom(document: document);
     }
 
     // Structured Flutter viewer for office/ebook blocks (styles, lists, tables).
@@ -1050,30 +1260,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         kind == ViewerKind.text ||
         kind == ViewerKind.richWeb) {
       final text = document.searchableText;
-      if (text.isEmpty && document.slides.isNotEmpty) {
-        final slideText = document.slides
-            .map((s) => '[Slide ${s.slideNumber}]\n${s.text}')
-            .join('\n\n');
-        return TextDocumentViewer(
-          key: _textViewerKey,
-          textContent: slideText,
-          onTap: _toggleControls,
-          onSearchHighlight: _onSearchHighlight,
-          fontSize: _textFontSize,
-          wordWrap: _textWordWrap,
-          useMonoFont: _textFontIsMonoFont,
-          language: _syntaxHighlightEnabled ? _languageForFormat(format) : null,
-        );
-      }
-      return TextDocumentViewer(
-        key: _textViewerKey,
-        textContent: text.isEmpty ? 'No readable content found in this file.' : text,
-        onTap: _toggleControls,
-        onSearchHighlight: _onSearchHighlight,
-        fontSize: _textFontSize,
-        wordWrap: _textWordWrap,
-        useMonoFont: _textFontIsMonoFont,
-        language: _syntaxHighlightEnabled ? _languageForFormat(format) : null,
+      return _buildTextViewerWithZoom(
+        textContent:
+            text.isEmpty ? 'No readable content found in this file.' : text,
+        format: format,
       );
     }
 
@@ -1103,19 +1293,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (kind == ViewerKind.spreadsheet ||
         document.isSpreadsheet ||
         _isSpreadsheet()) {
-      return DocumentViewerFactory.createViewer(
-        document: document,
-        filePath: widget.filePath,
-        onTap: _toggleControls,
-        onSheetSelectionChanged: (cellRef, value) {
-          setState(() {
-            _sheetCellRef = cellRef;
-            _sheetCellValue = value;
-          });
-        },
-        sheetViewerKey: _sheetViewerKey,
-        sheetZoom: _sheetZoom,
-      );
+      return _buildSpreadsheetWithZoom(document: document);
     }
 
     // For other document types, use the factory
@@ -2080,53 +2258,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             Icons.last_page,
             _currentPage < _totalPages ? _goToLastPage : null,
           ),
-          if (!_textMode) ...[
-            const SizedBox(width: 8),
-            ViewerZoomPanelControls(
-              zoom: _pdfZoom,
-              minZoom: 0.25,
-              maxZoom: 8.0,
-              showFit: true,
-              onZoomOut: () =>
-                  (_pdfViewerKey.currentState as dynamic)?.zoomOut(),
-              onZoomIn: () =>
-                  (_pdfViewerKey.currentState as dynamic)?.zoomIn(),
-              onFit: () =>
-                  (_pdfViewerKey.currentState as dynamic)?.fitToWidth(),
-            ),
-          ],
         ],
       );
     } else if (_isTextLikeFormat(format)) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildIconButton(
-            context,
-            Icons.remove,
-            _textFontSize > 12
-                ? () => setState(
-                    () => _textFontSize = (_textFontSize - 1).clamp(12, 32))
-                : null,
-          ),
-          SizedBox(
-            width: 50,
-            child: Center(
-              child: Text(
-                '${_textFontSize.toStringAsFixed(0)}pt',
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ),
-          ),
-          _buildIconButton(
-            context,
-            Icons.add,
-            _textFontSize < 32
-                ? () => setState(
-                    () => _textFontSize = (_textFontSize + 1).clamp(12, 32))
-                : null,
-          ),
-          const SizedBox(width: 8),
           _buildIconButton(
             context,
             _textWordWrap ? Icons.wrap_text : Icons.text_fields,
@@ -2152,24 +2289,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
 
     if (_isSpreadsheet()) {
-      // Same zoom widget as PDF bottom bar (− / % / + / fit).
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ViewerZoomPanelControls(
-            zoom: _sheetZoom,
-            minZoom: 0.3,
-            maxZoom: 3.0,
-            showFit: true,
-            onZoomOut: () => setState(
-              () => _sheetZoom = (_sheetZoom - 0.15).clamp(0.3, 3.0),
-            ),
-            onZoomIn: () => setState(
-              () => _sheetZoom = (_sheetZoom + 0.15).clamp(0.3, 3.0),
-            ),
-            onFit: () => setState(() => _sheetZoom = 1.0),
-          ),
-          const SizedBox(width: 4),
           _buildIconButton(
             context,
             Icons.fullscreen,

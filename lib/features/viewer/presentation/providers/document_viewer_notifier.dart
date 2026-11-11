@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:air_docs_viewer/core/services/storage_service.dart';
+import 'package:air_docs_viewer/core/services/file_security_validator.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
 import 'package:air_docs_viewer/features/viewer/data/providers/repository_providers.dart';
@@ -161,6 +162,13 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
           SupportedFormats.extensionOf(_filePath) ??
           SupportedFormats.extensionOf(_fileName) ??
           '';
+      final security = await FileSecurityValidator.validateFile(
+        _filePath,
+        claimedName: _fileName,
+      );
+      if (!security.isValid) {
+        throw Exception(security.reason ?? 'File failed security validation');
+      }
       final spec = SupportedFormats.of(extension);
       if (spec == null) {
         throw Exception(

@@ -33,7 +33,7 @@
 | **Version code** | `6` (in `android/app/build.gradle.kts`) |
 | **pubspec version** | `1.0.0+1` |
 | **Min SDK** | 26 (Android 8.0+) |
-| **Target ABI** | `arm64-v8a` only |
+| **Target ABI** | `arm64-v8a` + `armeabi-v7a` |
 | **APK names** | `AirDocsViewer-release.apk` / `AirDocsViewer-debug.apk` |
 
 **Legacy names to ignore:** Fadocx, LibreOfficeKit, old hacker icon — all removed.
@@ -200,7 +200,7 @@ lib/
 | File | Purpose |
 |------|---------|
 | `docx.html` + `docx-preview.js` | DOCX visual rendering |
-| `pptx.html` + `pptx-renderer.browser.js` + `jszip.min.js` | PPTX slide rendering |
+| `pptx.html` + `pptxjs/` (PPTXjs + divs2slides) | PPTX slide rendering |
 | `office_glyph_fix.js` | Bullet/symbol normalization (referenced from HTML) |
 
 ### Office glyph sanitization (Symbol/Wingdings bullets)

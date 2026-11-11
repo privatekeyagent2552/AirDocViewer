@@ -40,7 +40,7 @@ dependencies:
   # =========================
   # OFFICE VISUAL VIEWER (DOCX / PPTX)
   # =========================
-  # Bundled offline JS in assets/viewers (docx-preview + pptx-renderer).
+  # Bundled offline JS in assets/viewers (docx-preview + PPTXjs).
   # Legacy .doc / .ppt use structured POI/Dart parsers (not OOXML JS).
 
   # =========================
@@ -138,6 +138,7 @@ flutter:
     - assets/air_docs_logo_splash.png
     - assets/air_docs_splash_android12.png
     - assets/viewers/
+    - assets/viewers/pptxjs/
   
   fonts:
     - family: Ubuntu

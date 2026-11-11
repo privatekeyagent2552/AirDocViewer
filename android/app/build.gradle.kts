@@ -5,6 +5,7 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+import java.io.File
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -44,6 +45,13 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         multiDexEnabled = true
+        // Default APK (Android Studio + flutter build): 32-bit + 64-bit ARM.
+        // Flutter 3.35+ also injects x86_64 unless we clear first — skip emulators.
+        ndk {
+            abiFilters.clear()
+            abiFilters.add("arm64-v8a")
+            abiFilters.add("armeabi-v7a")
+        }
         // Launcher icon label only (home screen). Package id stays com.airdocsviewer.
         manifestPlaceholders["appName"] = "AirDoc Viewer"
     }
@@ -130,9 +138,38 @@ android.applicationVariants.configureEach {
 
 // Mirror release APK + metadata into android/app/release for Android Studio
 // "Locate" / Generate Signed APK. Primary output stays at build/app/outputs/apk/release.
+// Flutter Studio builds often only refresh flutter-apk/app-release.apk — sync that too.
 afterEvaluate {
-    val copyReleaseApkToIdeFolder = tasks.register<Copy>("copyReleaseApkToIdeFolder") {
+    val syncNamedReleaseApk = tasks.register("syncNamedReleaseApk") {
         dependsOn("packageRelease")
+        doLast {
+            val apkReleaseDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
+            val flutterApkDir = layout.buildDirectory.dir("outputs/flutter-apk").get().asFile
+            val ideReleaseDir = layout.projectDirectory.dir("release").asFile
+            ideReleaseDir.mkdirs()
+            apkReleaseDir.mkdirs()
+
+            val namedInApk = File(apkReleaseDir, "AirDocsViewer-release.apk")
+            val flutterAppRelease = File(flutterApkDir, "app-release.apk")
+            val namedInIde = File(ideReleaseDir, "AirDocsViewer-release.apk")
+
+            // Prefer newest existing release APK (Flutter path or Gradle named path).
+            val candidates = listOf(namedInApk, flutterAppRelease).filter { it.exists() }
+            val newest = candidates.maxByOrNull { it.lastModified() }
+                ?: return@doLast
+
+            if (newest != namedInApk) {
+                newest.copyTo(namedInApk, overwrite = true)
+            }
+            newest.copyTo(namedInIde, overwrite = true)
+
+            File(apkReleaseDir, "output-metadata.json").takeIf { it.exists() }
+                ?.copyTo(File(ideReleaseDir, "output-metadata.json"), overwrite = true)
+        }
+    }
+
+    val copyReleaseApkToIdeFolder = tasks.register<Copy>("copyReleaseApkToIdeFolder") {
+        dependsOn(syncNamedReleaseApk)
         from(layout.buildDirectory.dir("outputs/apk/release")) {
             include("AirDocsViewer-release.apk")
             include("output-metadata.json")
@@ -147,6 +184,10 @@ afterEvaluate {
     // AGP reads android/app/release/output-metadata.json; ensure copy runs first.
     tasks.matching { it.name == "createReleaseApkListingFileRedirect" }.configureEach {
         dependsOn(copyReleaseApkToIdeFolder)
+    }
+
+    tasks.matching { it.name == "assembleRelease" }.configureEach {
+        finalizedBy(syncNamedReleaseApk)
     }
 }
 

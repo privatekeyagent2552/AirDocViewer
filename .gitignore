@@ -107,12 +107,13 @@ app.*.map.json
 # Coverage
 coverage/
 
-# Signing
+# Signing — keep this GitHub repo private. Generic keystores stay ignored;
+# this project's release key is tracked so a new laptop can clone and ship updates.
 *.jks
 *.keystore
-android/key.properties
-android/keystore-credentials.txt
-!/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+!android/upload-keystore.jks
+!android/key.properties
+!android/keystore-credentials.txt
 
 # LibreOfficeKit native libraries (~250MB)
 # android/app/src/main/jniLibs/

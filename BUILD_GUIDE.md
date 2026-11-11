@@ -15,7 +15,7 @@ flutter run
 | App | AirDoc Viewer |
 | Flutter package | `air_docs_viewer` |
 | Android ID | `com.airdocsviewer` |
-| ABI | Prefer `arm64-v8a`; universal APK also has 32-bit ARM + x86_64 |
+| ABI | `arm64-v8a` + `armeabi-v7a` in **`AirDocsViewer-release.apk`** |
 | Min SDK | 26 |
 | Release APK name | **`AirDocsViewer-release.apk`** |
 
@@ -38,10 +38,10 @@ Copy / IDE path:
 
 `android/app/release/AirDocsViewer-release.apk`
 
-Arm64-only:
+32-bit + 64-bit ARM phones (default):
 
 ```bash
-flutter build apk --release --split-per-abi --target-platform android-arm64
+flutter build apk --release --target-platform android-arm,android-arm64
 ```
 
 ### Android Studio
@@ -62,7 +62,7 @@ adb uninstall com.airdocsviewer
 
 ## Notes
 
-- Release size roughly **~75–120 MB** (no LibreOffice)
+- Release size roughly **~85–90 MB** (32-bit + 64-bit ARM)
 - R8 + resource shrinking enabled for release
 - Before release: `dart run pdfrx:remove_wasm_modules`
 - After Hive changes: `dart run build_runner build --delete-conflicting-outputs`

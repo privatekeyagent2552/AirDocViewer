@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
+import 'package:air_docs_viewer/core/services/file_security_validator.dart';
 
 final log = Logger();
 
@@ -76,9 +77,6 @@ class StorageService {
       case 'odt':
       case 'rtf':
       case 'txt':
-      case 'java':
-      case 'py':
-      case 'sh':
       case 'html':
       case 'md':
       case 'log':
@@ -138,6 +136,18 @@ class StorageService {
   /// Destination: App's scoped storage (single source of truth)
   /// Returns the path to the copied file in app storage
   static Future<File> cacheDocument(String sourcePath, String fileName) async {
+    final safeName = FileSecurityValidator.sanitizeFileName(fileName);
+    if (safeName == null) {
+      throw Exception(
+          'Rejected file: unsupported or unsafe name "$fileName"');
+    }
+
+    final validation =
+        await FileSecurityValidator.validateFile(sourcePath, claimedName: safeName);
+    if (!validation.isValid) {
+      throw Exception('Rejected file: ${validation.reason}');
+    }
+
     final sourceFile = File(sourcePath);
     if (!await sourceFile.exists()) {
       throw Exception('Source file not found: $sourcePath');
@@ -145,12 +155,12 @@ class StorageService {
 
     try {
       // Determine category from file extension
-      final fileExtension = fileName.split('.').last;
+      final fileExtension = safeName.split('.').last;
       final category = _getCategoryFromExtension(fileExtension);
 
       // Get destination category folder
       final categoryDir = await getCategoryDir(category);
-      final destPath = '${categoryDir.path}/$fileName';
+      final destPath = '${categoryDir.path}/$safeName';
       final destFile = File(destPath);
       final normalizedSourcePath = sourceFile.absolute.path;
       final normalizedDestPath = destFile.absolute.path;
@@ -158,7 +168,7 @@ class StorageService {
       if (normalizedSourcePath == normalizedDestPath) {
         final existingSize = await sourceFile.length();
         log.i(
-          'Skipping cache copy for already-managed file: $fileName '
+          'Skipping cache copy for already-managed file: $safeName '
           '(path unchanged, $existingSize bytes)',
         );
         return sourceFile;
@@ -167,11 +177,11 @@ class StorageService {
       // Copy file to app storage
       final copied = await sourceFile.copy(destFile.path);
       final copiedSize = await copied.length();
-      log.i('Copied file: $fileName to ${copied.path} ($copiedSize bytes)');
+      log.i('Copied file: $safeName to ${copied.path} ($copiedSize bytes)');
 
       return copied;
     } catch (e) {
-      log.e('Failed to copy file $fileName', error: e);
+      log.e('Failed to copy file $safeName', error: e);
       rethrow;
     }
   }

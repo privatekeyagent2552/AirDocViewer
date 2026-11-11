@@ -2,38 +2,55 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+  <link rel="stylesheet" href="pptxjs/pptxjs.css"/>
+  <link rel="stylesheet" href="pptxjs/nv.d3.min.css"/>
   <style>
-    html, body { margin: 0; padding: 0; background: #111; color: #fff; overflow-x: auto; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #343029;
+      color: #fff;
+      overflow-x: auto;
+      touch-action: pan-x pan-y;
+    }
     #status {
       font-family: sans-serif; text-align: center; padding: 24px; color: #ddd;
     }
-    #pptx-container {
+    #result {
       width: 100%;
-      min-height: 100vh;
       box-sizing: border-box;
-      padding: 8px;
+      padding: 8px 0 24px;
+      transform-origin: top center;
+      touch-action: pan-x pan-y;
+    }
+    #result .slide {
+      margin: 14px auto;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
   </style>
+  <script src="pptxjs/jquery.min.js" onerror="window.__pptxScriptError='jquery'"></script>
+  <script src="pptxjs/jszip2.min.js" onerror="window.__pptxScriptError='jszip'"></script>
+  <script src="pptxjs/filereader.js" onerror="window.__pptxScriptError='filereader'"></script>
+  <script src="pptxjs/d3.min.js" onerror="window.__pptxScriptError='d3'"></script>
+  <script src="pptxjs/nv.d3.min.js" onerror="window.__pptxScriptError='nvd3'"></script>
+  <script src="pptxjs/pptxjs.js" onerror="window.__pptxScriptError='pptxjs'"></script>
+  <script src="pptxjs/divs2slides.js" onerror="window.__pptxScriptError='divs2slides'"></script>
 </head>
 <body>
   <div id="status">Opening presentation…</div>
-  <div id="pptx-container"></div>
-  <script
-    src="pptx-renderer.browser.js"
-    onerror="AirDocsViewer.postMessage(JSON.stringify({type:'error',message:'PPTX renderer script could not be loaded'}))"
-  ></script>
+  <div id="result"></div>
   <script>
     const statusEl = document.getElementById('status');
-    const container = document.getElementById('pptx-container');
+    const resultEl = document.getElementById('result');
 
-    /** @type {any} */
-    let viewer = null;
-    // Relative zoom factor (1 = fit-to-width via renderer fitMode contain).
     let currentZoom = 1;
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 3;
-
+    let pinching = false;
+    let pinchStartDist = 0;
+    let pinchStartZoom = 1;
+    let notifyRaf = null;
     function setStatus(text) {
       statusEl.textContent = text || '';
       statusEl.style.display = text ? 'block' : 'none';
@@ -50,45 +67,73 @@
     }
 
     function notifyZoom() {
-      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
-        AirDocsViewer.postMessage(JSON.stringify({
-          type: 'zoom',
-          zoom: currentZoom,
-        }));
-      }
+      if (notifyRaf != null) return;
+      notifyRaf = requestAnimationFrame(function() {
+        notifyRaf = null;
+        if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+          AirDocsViewer.postMessage(JSON.stringify({ type: 'zoom', zoom: currentZoom }));
+        }
+      });
     }
 
-    /**
-     * Uses the pptx-renderer built-in zoomFactor (works with fitMode contain).
-     * CSS zoom was ignored / fought by the renderer — this re-renders slides.
-     */
-    async function applyZoom(zoom) {
+    function applyZoom(zoom) {
       const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(zoom) || 1));
       currentZoom = Math.round(next * 100) / 100;
-      if (viewer && typeof viewer.setZoom === 'function') {
-        // setZoom expects percent (100 = 1x relative to fit-width).
-        await viewer.setZoom(currentZoom * 100);
-      }
+      resultEl.style.transform = 'scale(' + currentZoom + ')';
       notifyZoom();
       return currentZoom;
     }
 
+    function resetScrollToOrigin() {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollLeft = 0;
+      document.documentElement.scrollTop = 0;
+      document.body.scrollLeft = 0;
+      document.body.scrollTop = 0;
+    }
+
     window.fitPptxToWidth = function() {
-      // fitMode "contain" already fits slide width; reset relative zoom to 1.
-      return applyZoom(1);
+      const result = applyZoom(1);
+      resetScrollToOrigin();
+      if (notifyRaf != null) {
+        cancelAnimationFrame(notifyRaf);
+        notifyRaf = null;
+      }
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({ type: 'zoom', zoom: currentZoom }));
+      }
+      return result;
     };
-
-    window.setPptxZoom = function(zoom) {
-      return applyZoom(zoom);
-    };
-
+    window.setPptxZoom = function(zoom) { return applyZoom(zoom); };
     window.adjustPptxZoom = function(delta) {
       return applyZoom(currentZoom + (Number(delta) || 0));
     };
+    window.getPptxZoom = function() { return currentZoom; };
 
-    window.getPptxZoom = function() {
-      return currentZoom;
-    };
+    function touchDistance(touches) {
+      return Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY
+      );
+    }
+    document.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 2) {
+        pinching = true;
+        pinchStartDist = touchDistance(e.touches);
+        pinchStartZoom = currentZoom;
+      }
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e) {
+      if (!pinching || e.touches.length !== 2) return;
+      if (e.cancelable) e.preventDefault();
+      const dist = touchDistance(e.touches);
+      if (pinchStartDist <= 1) return;
+      applyZoom(pinchStartZoom * (dist / pinchStartDist));
+    }, { passive: false });
+    document.addEventListener('touchend', function(e) {
+      if (e.touches.length < 2) pinching = false;
+    }, { passive: true });
+    document.addEventListener('touchcancel', function() { pinching = false; }, { passive: true });
 
     function b64ToBytes(b64) {
       const bin = atob(b64);
@@ -137,36 +182,93 @@
       if (resolvers[requestId]) resolvers[requestId](chunkB64);
     };
 
-    window.startOfflinePptx = async function(chunkCount) {
-      try {
-        if (!window.PptxViewer || !window.RECOMMENDED_ZIP_LIMITS) {
-          throw new Error('PPTX renderer failed to load');
+    function pptxEngineReady() {
+      return window.jQuery &&
+        jQuery.fn &&
+        typeof jQuery.fn.pptxToHtml === 'function' &&
+        window.FileReaderJS &&
+        typeof FileReaderJS.setupBlob === 'function';
+    }
+
+    async function waitForPptxEngine() {
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        if (window.__pptxScriptError) {
+          throw new Error('PPTX renderer script could not be loaded (' + window.__pptxScriptError + ')');
         }
+        if (pptxEngineReady()) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error('PPTX renderer failed to load');
+    }
+
+    function waitForSlides() {
+      return new Promise((resolve, reject) => {
+        let checks = 0;
+        const poll = setInterval(function() {
+          checks++;
+          const slides = document.querySelectorAll('#result .slide');
+          if (slides.length > 0) {
+            clearInterval(poll);
+            resolve(slides.length);
+          } else if (checks > 120) {
+            clearInterval(poll);
+            reject(new Error('Could not render this presentation'));
+          }
+        }, 500);
+      });
+    }
+
+    let startLock = false;
+    window.startOfflinePptx = async function(chunkCount) {
+      if (startLock) return;
+      startLock = true;
+      try {
+        await waitForPptxEngine();
         setStatus('Preparing PPTX…');
         const bytes = await loadChunks(chunkCount);
         setStatus('Rendering slides…');
-        container.innerHTML = '';
-        viewer = await PptxViewer.open(bytes.buffer, container, {
-          zipLimits: RECOMMENDED_ZIP_LIMITS,
-          // Native fit-to-width; user zoom multiplies this via setZoom().
-          fitMode: 'contain',
-          zoomPercent: 100,
-          renderMode: 'list',
-          listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
-          lazySlides: true,
-          lazyMedia: true,
+        resultEl.innerHTML = '';
+        // PPTXjs normally XHR-fetches pptxFileUrl. Stub the loader so we
+        // never need network or file:// XHR — same bytes Gander would serve.
+        if (!window.JSZipUtils) window.JSZipUtils = {};
+        JSZipUtils.getBinaryContent = function(_url, cb) {
+          try {
+            cb(null, bytes.buffer);
+          } catch (err) {
+            cb(err, null);
+          }
+        };
+        jQuery('#result').pptxToHtml({
+          pptxFileUrl: 'local.pptx',
+          slideMode: false,
+          keyBoardShortCut: false,
+          mediaProcess: true,
         });
+        const count = await waitForSlides();
         currentZoom = 1;
-        notifyZoom();
+        applyZoom(1);
         setStatus('');
         if (window.AirDocsViewer && AirDocsViewer.postMessage) {
-          AirDocsViewer.postMessage(JSON.stringify({ type: 'rendered' }));
+          AirDocsViewer.postMessage(JSON.stringify({
+            type: 'rendered',
+            slideCount: count,
+          }));
         }
       } catch (e) {
-        viewer = null;
+        startLock = false;
         fail(e && e.message ? e.message : String(e));
       }
     };
+
+    if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+      AirDocsViewer.postMessage(JSON.stringify({ type: 'bridgeReady' }));
+    }
+    if (typeof window.__pendingPptxChunks === 'number') {
+      const n = window.__pendingPptxChunks;
+      window.__pendingPptxChunks = null;
+      window.startOfflinePptx(n);
+    }
   </script>
 </body>
 </html>

@@ -359,21 +359,26 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
 
   void zoomIn() {
     if (!_isControllerReady || widget.textMode) return;
-    _controller.zoomUp().ignore();
+    _controller.zoomUp().then((_) => _notifyZoomChanged()).ignore();
   }
 
   void zoomOut() {
     if (!_isControllerReady || widget.textMode) return;
-    _controller.zoomDown().ignore();
+    _controller.zoomDown().then((_) => _notifyZoomChanged()).ignore();
   }
 
+  /// Fit page to width and reset pan to the natural viewing position.
   void fitToWidth() {
     if (!_isControllerReady || widget.textMode) return;
-    final matrix = _controller.calcMatrixFitWidthForPage(
-      pageNumber: _currentPage.clamp(1, _totalPages),
-    );
+    final page = _currentPage.clamp(1, _totalPages);
+    final matrix = _controller.calcMatrixFitWidthForPage(pageNumber: page);
     if (matrix != null) {
-      _controller.goTo(matrix).ignore();
+      _controller.goTo(matrix).then((_) => _notifyZoomChanged()).ignore();
+    } else {
+      // Fallback: jump to page (resets view) then notify zoom.
+      _controller.goToPage(pageNumber: page).then((_) {
+        _notifyZoomChanged();
+      }).ignore();
     }
   }
 

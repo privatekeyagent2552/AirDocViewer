@@ -12,26 +12,34 @@ import 'package:highlight/languages/xml.dart';
 import 'package:highlight/languages/markdown.dart';
 import 'package:highlight/languages/json.dart' as hl_json_lang;
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/text_document_search_drawer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/pinch_zoom_listener.dart';
 import 'package:air_docs_viewer/features/viewer/data/services/office_glyph_sanitizer.dart';
 
 final log = Logger();
 
 /// High-performance text document viewer with lazy loading for large files
-/// Supports tap-to-hide controls, font sizing, search, and virtualization
+/// Supports tap-to-hide controls, zoom, search, and virtualization
 class TextDocumentViewer extends StatefulWidget {
   final String? textContent;
   final VoidCallback? onTap;
   final VoidCallback? onSearchHighlight;
-  final double fontSize;
+  final double zoom;
+  final ValueChanged<double>? onZoomChanged;
   final bool wordWrap;
   final bool useMonoFont;
   final String? language;
+
+  static const double baseFontSize = 18.0;
+  static const double minZoom = 0.25;
+  static const double maxZoom = 3.0;
+  static const double zoomStep = 0.15;
 
   const TextDocumentViewer({
     required this.textContent,
     this.onTap,
     this.onSearchHighlight,
-    this.fontSize = 14,
+    this.zoom = 1.0,
+    this.onZoomChanged,
     this.wordWrap = true,
     this.useMonoFont = false,
     this.language,
@@ -39,10 +47,10 @@ class TextDocumentViewer extends StatefulWidget {
   });
 
   @override
-  State<TextDocumentViewer> createState() => _TextDocumentViewerState();
+  State<TextDocumentViewer> createState() => TextDocumentViewerState();
 }
 
-class _TextDocumentViewerState extends State<TextDocumentViewer>
+class TextDocumentViewerState extends State<TextDocumentViewer>
     with SingleTickerProviderStateMixin {
   static const double _kTopPadding = 40;
   static const double _kBottomPadding = 16;
@@ -70,6 +78,29 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
   int _searchCancellationToken = 0;
   int? _highlightedResultIndex;
   Timer? _highlightReverseTimer;
+
+  double get currentZoom => widget.zoom.clamp(TextDocumentViewer.minZoom, TextDocumentViewer.maxZoom);
+
+  void zoomIn() => _setZoom(currentZoom + TextDocumentViewer.zoomStep);
+
+  void zoomOut() => _setZoom(currentZoom - TextDocumentViewer.zoomStep);
+
+  void fitToWidth() {
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
+    if (_horizontalScrollController.hasClients) {
+      _horizontalScrollController.jumpTo(0);
+    }
+    _setZoom(1.0);
+  }
+
+  void _setZoom(double zoom) {
+    final clamped =
+        zoom.clamp(TextDocumentViewer.minZoom, TextDocumentViewer.maxZoom);
+    if ((clamped - widget.zoom).abs() < 0.005) return;
+    widget.onZoomChanged?.call(clamped);
+  }
 
   @override
   void initState() {
@@ -279,7 +310,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
   }
 
   void updateFontSize(double size) {
-    // Parent widget handles state updates via fontSize parameter
+    // Legacy — zoom is controlled via [zoom] + [onZoomChanged].
   }
 
   void toggleWordWrap() {
@@ -600,7 +631,9 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
     return bounds;
   }
 
-  double get _lineHeight => widget.fontSize * 1.5;
+  double get _lineHeight => _effectiveFontSize * 1.5;
+
+  double get _effectiveFontSize => TextDocumentViewer.baseFontSize * widget.zoom;
   double get _lineExtent => _lineHeight + 2;
 
   GlobalKey _lineTextKey(int index) {
@@ -609,7 +642,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
 
   double _lineNumberWidth(BuildContext context) {
     final lineNumberStyle = TextStyle(
-      fontSize: widget.fontSize * 0.9,
+      fontSize: _effectiveFontSize * 0.9,
       fontFamily: widget.useMonoFont ? 'Courier' : 'Ubuntu',
       height: 1.5,
       letterSpacing: -0.1,
@@ -644,7 +677,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
 
     final textColor = Theme.of(context).colorScheme.onSurface;
     final fontFamily = widget.useMonoFont ? 'Courier' : 'Ubuntu';
-    final fontSize = widget.fontSize;
+    final fontSize = _effectiveFontSize;
     final lineNumberWidth = _lineNumberWidth(context);
     final textStyle = TextStyle(
       fontSize: fontSize,
@@ -654,8 +687,10 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
       letterSpacing: -0.3,
     );
 
-    // Wrap entire content in Listener to detect taps (like PDF viewer)
-    return Listener(
+    return PinchZoomListener(
+      currentZoom: () => currentZoom,
+      onZoom: _setZoom,
+      child: Listener(
       onPointerDown: (event) {
         _tapStartPosition = event.position;
         _tapStartTime = DateTime.now();
@@ -804,6 +839,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
           },
         ),
       ),
+    ),
     );
   }
 
@@ -864,7 +900,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
     required TextStyle textStyle,
   }) {
     final lineNumberStyle = textStyle.copyWith(
-      fontSize: widget.fontSize * 0.9,
+      fontSize: _effectiveFontSize * 0.9,
       color: Theme.of(context)
           .colorScheme
           .onSurfaceVariant
@@ -917,7 +953,7 @@ class _TextDocumentViewerState extends State<TextDocumentViewer>
     required TextStyle textStyle,
   }) {
     final lineNumberStyle = textStyle.copyWith(
-      fontSize: widget.fontSize * 0.9,
+      fontSize: _effectiveFontSize * 0.9,
       color: Theme.of(context)
           .colorScheme
           .onSurfaceVariant

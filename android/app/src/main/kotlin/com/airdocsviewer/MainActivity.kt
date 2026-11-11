@@ -383,17 +383,16 @@ class MainActivity : FlutterActivity() {
     private fun getCategoryFromExtension(ext: String): String {
         return when (ext.lowercase()) {
             "pdf" -> "PDFs"
-            "epub", "ott" -> "Documents"
+            "docx", "doc", "odt", "rtf", "txt", "html", "htm", "md", "log",
+            "json", "xml", "atom", "epub", "ott", "fadrec" -> "Documents"
             "xlsx", "xls", "ods", "csv" -> "Spreadsheets"
             "ppt", "pptx", "odp" -> "Presentations"
-            "jpg", "jpeg", "png", "gif", "webp", "ico", "psd" -> "Images"
-            // Audio formats
+            "jpg", "jpeg", "png", "gif", "webp", "ico", "psd",
+            "bmp", "svg", "tif", "tiff", "heic", "heif", "avif" -> "Images"
             "aac", "mp3", "wav", "ogg", "flac", "m4a", "wma", "opus", "aiff" -> "Audio"
-            // Video formats
-            "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "3gp", "m4v", "mpg", "mpeg", "fmp4" -> "Video"
-            // Code folder covers: docx, doc, odt, rtf, txt, java, py, sh,
-            // html, md, log, json, xml, fadrec, and any unknown
-            else -> "Code"
+            "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "3gp", "m4v",
+            "mpg", "mpeg", "fmp4" -> "Video"
+            else -> "Documents"
         }
     }
 
@@ -422,6 +421,21 @@ class MainActivity : FlutterActivity() {
                 inputStream.close()
                 return null
             }
+
+            // Peek magic bytes before writing (prevent EXE renamed to .pdf etc.)
+            val peek = ByteArray(64)
+            val read = inputStream.read(peek)
+            inputStream.close()
+            if (read <= 0) {
+                Log.w(TAG, "Rejected empty content URI stream")
+                return null
+            }
+            if (!SecurityUtils.validateStreamHeader(peek.inputStream(), ext)) {
+                Log.w(TAG, "Rejected content URI — magic/signature mismatch for .$ext")
+                return null
+            }
+
+            val fullStream = contentResolver.openInputStream(uri) ?: return null
             val category = getCategoryFromExtension(ext)
 
             // Write directly to managed storage
@@ -433,10 +447,19 @@ class MainActivity : FlutterActivity() {
 
             // Avoid overwriting existing files (append counter)
             val finalFile = resolveFileName(destFile)
-            FileOutputStream(finalFile).use { output ->
-                inputStream.copyTo(output)
+            try {
+                FileOutputStream(finalFile).use { output ->
+                    fullStream.copyTo(output)
+                }
+            } finally {
+                fullStream.close()
             }
-            inputStream.close()
+
+            if (!SecurityUtils.validateFileContent(finalFile)) {
+                Log.w(TAG, "Post-write validation failed — deleting import")
+                finalFile.delete()
+                return null
+            }
 
             Log.i(TAG, "Imported content URI to managed storage")
             finalFile.absolutePath
