@@ -277,6 +277,9 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
 
       log.w('Native DOCX fallback failed, trying Dart parser: $e',
           error: e, stackTrace: st);
+      if (e.toString().toLowerCase().contains('too large')) {
+        rethrow;
+      }
       final structured = await WordDocumentParserService.parseDocx(filePath);
       final result = ParsedDocumentEntity(
         format: 'DOCX',

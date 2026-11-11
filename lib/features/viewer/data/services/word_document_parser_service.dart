@@ -322,11 +322,22 @@ class WordDocumentParserService {
     String filePath,
   ) async {
     final file = File(filePath);
+    final length = await file.length();
+    if (length > 40 * 1024 * 1024) {
+      throw Exception(
+        'This document is too large to open safely on this device.',
+      );
+    }
     final bytes = await file.readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
     final documentFile = archive.findFile('word/document.xml');
     if (documentFile == null) {
       throw Exception('word/document.xml not found in DOCX file');
+    }
+    if (documentFile.size > 12 * 1024 * 1024) {
+      throw Exception(
+        'This document is too large to open safely on this device.',
+      );
     }
 
     final rels = _parseDocxRelationships(archive);

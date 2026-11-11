@@ -73,17 +73,15 @@ class DocumentViewerFactory {
       );
     }
 
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: document.sheetCount == 1
-          ? _buildSheetTable(
-              document.sheets.first,
-              onSelectionChanged,
-              sheetViewerKey,
-              zoom: zoom,
-              onZoomChanged: onZoomChanged,
-            )
-          : DefaultTabController(
+    final sheetBody = document.sheetCount == 1
+        ? _buildSheetTable(
+            document.sheets.first,
+            onSelectionChanged,
+            sheetViewerKey,
+            zoom: zoom,
+            onZoomChanged: onZoomChanged,
+          )
+        : DefaultTabController(
               length: document.sheetCount,
               child: Column(
                 children: [
@@ -114,6 +112,33 @@ class DocumentViewerFactory {
                   ),
                 ],
               ),
+            );
+    final warning = document.parseWarnings.isEmpty
+        ? null
+        : document.parseWarnings.first;
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: warning == null
+          ? sheetBody
+          : Column(
+              children: [
+                Builder(
+                  builder: (context) => Material(
+                    color: Theme.of(context).colorScheme.tertiaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: Text(
+                        warning,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(child: sheetBody),
+              ],
             ),
     );
   }

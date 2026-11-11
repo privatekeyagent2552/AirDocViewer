@@ -77,6 +77,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
+  # pdfrx 2.2.24 pulls pdfrx_engine 0.3.9, overridden below for Dart 3.13.
   pdfrx: ^2.2.24
   flutter_launcher_icons: ^0.14.4
   package_info_plus: ^9.0.1
@@ -124,6 +125,11 @@ flutter_launcher_icons:
 dependency_overrides:
   matcher: ^0.12.16
   test_api: ^0.7.0
+  # 0.3.9 is the last 0.3.x release and does not compile on Dart 3.13.
+  # This path package is that version plus a non-null cache local in
+  # pdfDocumentFromUri. pub get replaces hosted cache edits, so the fix lives here.
+  pdfrx_engine:
+    path: third_party/pdfrx_engine
 
 flutter:
   uses-material-design: true

@@ -1,3 +1,9 @@
+// AGP 9.1 marks the legacy android {} accessor (BaseAppModuleExtension) as
+// DeprecationLevel.ERROR. android.newDsl=false still selects that accessor,
+// which Flutter's Gradle plugin casts to AbstractAppExtension. Suppress the
+// error so kotlinOptions, aaptOptions, and applicationVariants keep compiling.
+@file:Suppress("DEPRECATION_ERROR")
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -20,6 +26,7 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+@Suppress("DEPRECATION")
 android {
     namespace = "com.airdocsviewer"
     compileSdk = flutter.compileSdkVersion
@@ -29,10 +36,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
         isCoreLibraryDesugaringEnabled = true
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -104,7 +107,7 @@ android {
         }
     }
 
-    aaptOptions {
+    androidResources {
         noCompress += listOf(
             "rdb", "rc", "xcu", "xcs", "xcl", "xcsa", "xcul", "xcd",
             "xslt", "xml", "py", "ttf", "otf", "ttc",
@@ -128,6 +131,7 @@ base {
     archivesName.set("AirDocsViewer")
 }
 
+@Suppress("DEPRECATION")
 android.applicationVariants.configureEach {
     val buildTypeName = buildType.name
     outputs.configureEach {
@@ -210,6 +214,12 @@ dependencies {
     implementation("commons-io:commons-io:2.11.0")
     implementation("commons-codec:commons-codec:1.15")
     implementation("commons-logging:commons-logging:1.2")
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
 }
 
 flutter {

@@ -70,11 +70,19 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
 
   @override
   ParsedDocumentState build() {
+    ref.onDispose(() {
+      // Bump the generation so an in-flight native parse cannot write state
+      // after this notifier is disposed.
+      _loadGeneration++;
+    });
     return const ParsedDocumentState();
   }
 
+  bool _canApply(int gen) => ref.mounted && gen == _loadGeneration;
+
   /// Initialize with file path and name, then load document.
   Future<void> initializeAndLoad(String filePath, String fileName) async {
+    if (!ref.mounted) return;
     _filePath = filePath;
     _fileName = fileName;
     await loadDocument();
@@ -83,6 +91,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
   /// Force structured/text fallback for visual formats (DOCX/PPTX) when
   /// the pure-Flutter renderer fails.
   Future<void> loadStructuredFallback() async {
+    if (!ref.mounted) return;
     final gen = ++_loadGeneration;
     final extension =
         SupportedFormats.extensionOf(_filePath) ??
@@ -109,7 +118,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
         'pptx' => await repository.parsePPTXStructured(_filePath),
         _ => throw UnsupportedError('No Office fallback for .$extension'),
       };
-      if (gen != _loadGeneration) return;
+      if (!_canApply(gen)) return;
 
       state = ParsedDocumentState(
         document: document,
@@ -119,8 +128,8 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
       );
       log.i('Fallback open: $_fileName (format: ${document.format})');
     } catch (e, st) {
-      if (gen != _loadGeneration) return;
       log.e('Fallback parse failed: $e', error: e, stackTrace: st);
+      if (!_canApply(gen)) return;
       state = state.copyWith(
         isLoading: false,
         phase: ViewerPhase.error,
@@ -131,6 +140,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
 
   /// Mark visual content as fully rendered (called from viewer).
   void markReady() {
+    if (!ref.mounted) return;
     if (state.phase == ViewerPhase.ready || state.phase == ViewerPhase.fallback) {
       return;
     }
@@ -139,6 +149,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
 
   /// Load and parse the document using the strategy from [SupportedFormats].
   Future<void> loadDocument() async {
+    if (!ref.mounted) return;
     if (_filePath.isEmpty) {
       log.e('loadDocument called before initializeAndLoad');
       return;
@@ -170,6 +181,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
         throw Exception(security.reason ?? 'File failed security validation');
       }
       final spec = SupportedFormats.of(extension);
+      if (!_canApply(gen)) return;
       if (spec == null) {
         throw Exception(
           'Unsupported file format: ${extension.isEmpty ? '(no extension)' : extension}',
@@ -182,7 +194,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
       switch (spec.openStrategy) {
         case OpenStrategy.direct:
           document = _directStub(spec);
-          if (gen != _loadGeneration) return;
+          if (!_canApply(gen)) return;
           state = ParsedDocumentState(
             document: document,
             isLoading: false,
@@ -195,7 +207,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
         case OpenStrategy.visualWithFallback:
           // Show visual stub immediately; viewer may later request structured fallback.
           document = _directStub(spec);
-          if (gen != _loadGeneration) return;
+          if (!_canApply(gen)) return;
           state = ParsedDocumentState(
             document: document,
             isLoading: false,
@@ -207,7 +219,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
 
         case OpenStrategy.parserFirst:
           document = await _parseBySpec(spec);
-          if (gen != _loadGeneration) return;
+          if (!_canApply(gen)) return;
           state = ParsedDocumentState(
             document: document,
             isLoading: false,
@@ -222,8 +234,8 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
           return;
       }
     } catch (e, st) {
-      if (gen != _loadGeneration) return;
       log.e('Error loading document: $e', error: e, stackTrace: st);
+      if (!_canApply(gen)) return;
       state = state.copyWith(
         isLoading: false,
         phase: ViewerPhase.error,
@@ -246,6 +258,9 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
   }
 
   Future<ParsedDocumentEntity> _parseBySpec(FormatSpec spec) async {
+    if (!ref.mounted) {
+      throw StateError('Document viewer was closed');
+    }
     final repository = ref.read(documentParsingRepositoryProvider);
     final ext = spec.extension;
 

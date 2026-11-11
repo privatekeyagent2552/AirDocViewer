@@ -23,19 +23,27 @@ print_header() {
 
 print_section() { echo -e "\n${CYAN}${BOLD}▶ $1${NC}"; }
 
+apply_engine_patch() {
+    print_section "Patching pdfrx_engine for Dart 3.13"
+    dart run tool/patch_pdfrx_engine.dart
+}
+
 run_release_build() {
+    apply_engine_patch
     print_section "Building release APK"
     flutter build apk --release --split-per-abi --target-platform android-arm64
     echo -e "${GREEN}✓ APK: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk${NC}"
 }
 
 run_debug_build() {
+    apply_engine_patch
     print_section "Building debug APK"
     flutter build apk --debug --split-per-abi --target-platform android-arm64
     echo -e "${GREEN}✓ APK: build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk${NC}"
 }
 
 run_dev() {
+    apply_engine_patch
     print_section "Running debug (hot reload)"
     flutter run
 }

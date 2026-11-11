@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
@@ -44,7 +44,9 @@ class OfficeVisualViewer extends StatefulWidget {
 class OfficeVisualViewerState extends State<OfficeVisualViewer> {
   final _log = Logger();
   late final WebViewController _controller;
-  List<String> _chunks = const [];
+  int _chunkCount = 0;
+  static const _chunkBytes = 120 * 1024;
+  static const _maxOfficeBytes = 64 * 1024 * 1024;
   String? _error;
   String _status = 'Preparing document…';
   bool _htmlLoaded = false;
@@ -124,14 +126,14 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
               );
               return;
             }
-            if (url.contains('about:blank') || url.isEmpty && _chunks.isEmpty) {
+            if (url.contains('about:blank') || url.isEmpty && _chunkCount == 0) {
               _log.w(
                 'Ignored main-frame error before viewer html: '
                 '${error.description} $url',
               );
               return;
             }
-            if (_chunks.isEmpty) {
+            if (_chunkCount == 0) {
               _log.w(
                 'Ignored main-frame error during prepare: ${error.description}',
               );
@@ -214,11 +216,17 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
         }
       }
 
-      final bytes = await File(widget.filePath).readAsBytes();
-      if (bytes.isEmpty) {
+      final length = await File(widget.filePath).length();
+      if (length <= 0) {
         throw Exception('File is empty: ${widget.filePath}');
       }
-      _chunks = await compute(_encodeChunks, bytes);
+      if (length > _maxOfficeBytes) {
+        final mb = (length / (1024 * 1024)).ceil();
+        throw Exception(
+          'This file is too large to preview safely on this device ($mb MB, limit 64 MB).',
+        );
+      }
+      _chunkCount = (length + _chunkBytes - 1) ~/ _chunkBytes;
 
       if (!mounted) return;
       setState(() {
@@ -231,7 +239,7 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
       unawaited(_startRender());
       _log.d(
         'OfficeVisualViewer html loaded kind=${widget.kind.name} '
-        'chunks=${_chunks.length}',
+        'chunks=$_chunkCount',
       );
     } catch (e, st) {
       _log.e('Office visual prepare failed: $e', error: e, stackTrace: st);
@@ -307,7 +315,7 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
   }
 
   Future<void> _startRender() async {
-    if (_started || _chunks.isEmpty) return;
+    if (_started || _chunkCount == 0) return;
     if (!_bridgeReady && !_htmlLoaded) return;
 
     final starter = widget.kind == OfficeVisualKind.word
@@ -322,14 +330,14 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
             ? '__pendingDocxChunks'
             : '__pendingPptxChunks';
         await _controller.runJavaScript(
-          'window.$pending = ${_chunks.length};',
+          'window.$pending = $_chunkCount;',
         );
-        _log.d('OfficeVisualViewer queued $pending=${_chunks.length}');
+        _log.d('OfficeVisualViewer queued $pending=$_chunkCount');
         return;
       }
       _started = true;
       await _controller.runJavaScript(
-        'window.$starter(${_chunks.length});',
+        'window.$starter($_chunkCount);',
       );
     } catch (e, st) {
       _started = false;
@@ -349,11 +357,11 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
         case 'getChunk':
           final index = payload['index'] as int? ?? -1;
           final requestId = payload['requestId'] as String? ?? '';
-          if (index < 0 || index >= _chunks.length || requestId.isEmpty) {
+          if (index < 0 || index >= _chunkCount || requestId.isEmpty) {
             _fail('Invalid document chunk request');
             return;
           }
-          final chunk = jsonEncode(_chunks[index]);
+          final chunk = jsonEncode(await _readChunk(index));
           await _controller.runJavaScript(
             'window.receiveDocChunk(${jsonEncode(requestId)}, $chunk);',
           );
@@ -479,6 +487,39 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
     }
   }
 
+  Future<String> _readChunk(int index) async {
+    final start = index * _chunkBytes;
+    final file = await File(widget.filePath).open();
+    try {
+      await file.setPosition(start);
+      final builder = BytesBuilder(copy: false);
+      var remaining = _chunkBytes;
+      while (remaining > 0) {
+        final data = await file.read(remaining);
+        if (data.isEmpty) break;
+        builder.add(data);
+        remaining -= data.length;
+      }
+      return base64Encode(builder.takeBytes());
+    } finally {
+      await file.close();
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_releaseWebView());
+    super.dispose();
+  }
+
+  Future<void> _releaseWebView() async {
+    try {
+      await _controller.loadHtmlString('<!doctype html><html><body></body></html>');
+    } catch (e) {
+      _log.d('WebView release skipped: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bg = widget.backgroundColor ?? const Color(0xFFF5F5F5);
@@ -527,12 +568,3 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
   }
 }
 
-List<String> _encodeChunks(Uint8List bytes) {
-  const chunkBytes = 120 * 1024;
-  final out = <String>[];
-  for (var i = 0; i < bytes.length; i += chunkBytes) {
-    final end = (i + chunkBytes < bytes.length) ? i + chunkBytes : bytes.length;
-    out.add(base64Encode(bytes.sublist(i, end)));
-  }
-  return out;
-}

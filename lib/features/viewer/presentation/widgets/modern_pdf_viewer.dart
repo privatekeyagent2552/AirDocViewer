@@ -553,58 +553,27 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
       log.i(
           '🔄 Starting comprehensive text extraction for all $_totalPages pages...');
 
-      // Extract text from all pages systematically with PdfViewer rendering
+      // Count words from page text only. Rendering every page here leaked
+      // pdfrx images (they must be disposed) and kept the raster thread busy.
+      var wordCount = 0;
+      var lineCount = 0;
       for (int pageIndex = 0; pageIndex < _totalPages; pageIndex++) {
         if (!mounted) break;
 
         try {
-          log.d('📄 Extracting page ${pageIndex + 1}/$_totalPages...');
-          final page = _document!.pages[pageIndex];
-
-          // Render page at screen resolution using PdfViewer's logic
-          // This initializes the page engine properly
-          await page.render(
-            width: 600,
-            height: 847,
-          );
-
-          // Small delay to allow page initialization
-          await Future.delayed(const Duration(milliseconds: 50));
-
-          // Now extract text - page should be properly initialized
-          final pageText = await page.loadText();
-
-          if (pageText != null) {
-            final fullText = ((pageText as dynamic).fullText ?? '') as String;
-            final trimmedText = fullText.trim();
-            if (mounted) {
-              setState(() => _pageTexts[pageIndex] = trimmedText);
-            }
-            log.d(
-                '✅ Page ${pageIndex + 1}: Extracted ${trimmedText.length} chars');
-          } else {
-            // Page has no text content - cache as empty
-            if (mounted) {
-              setState(() => _pageTexts[pageIndex] = '');
-            }
-            log.w('⚠️ Page ${pageIndex + 1}: No text content (scanned image?)');
-          }
+          final pageText = await _document!.pages[pageIndex].loadText();
+          if (pageText == null) continue;
+          final fullText = ((pageText as dynamic).fullText ?? '') as String;
+          final trimmedText = fullText.trim();
+          if (trimmedText.isEmpty) continue;
+          wordCount += RegExp(r'\S+').allMatches(trimmedText).length;
+          lineCount += trimmedText.split(RegExp(r'\r\n|\r|\n')).length;
         } catch (e) {
-          log.e('❌ Page ${pageIndex + 1} extraction error: $e');
-          if (mounted) {
-            setState(() => _pageTexts[pageIndex] = '');
-          }
+          log.e('Page ${pageIndex + 1} text stat error: $e');
         }
       }
 
-      log.i(
-          '✅ Text extraction complete: ${_pageTexts.length}/$_totalPages pages');
-      final extractedPages = _pageTexts.values.where((text) => text.isNotEmpty);
-      final combinedText = extractedPages.join('\n');
-      final wordCount = RegExp(r'\S+').allMatches(combinedText).length;
-      final lineCount = combinedText.isEmpty
-          ? 0
-          : combinedText.split(RegExp(r'\r\n|\r|\n')).length;
+      log.i('Text stats: $wordCount words, $lineCount lines, $_totalPages pages');
       widget.onTextStatsChanged?.call(wordCount, lineCount);
     } catch (e) {
       log.e('❌ Comprehensive extraction failed: $e');

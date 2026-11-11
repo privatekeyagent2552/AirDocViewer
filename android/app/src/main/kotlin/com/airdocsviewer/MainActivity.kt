@@ -21,6 +21,10 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 class MainActivity : FlutterActivity() {
     private fun logCauseChain(prefix: String, throwable: Throwable?) {
@@ -57,6 +61,15 @@ class MainActivity : FlutterActivity() {
     private val pdfRenderers = mutableMapOf<String, PdfRenderer>()
     private val pdfDescriptors = mutableMapOf<String, ParcelFileDescriptor>()
 
+    /** One heavy job at a time so POI, PDFBox, and bitmaps cannot stack to the 512MB heap. */
+    private fun succeed(result: MethodChannel.Result, value: Any?) {
+        runOnUiThread { result.success(value) }
+    }
+
+    private fun fail(result: MethodChannel.Result, code: String, message: String?) {
+        runOnUiThread { result.error(code, message, null) }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         intentFlutterEngine = flutterEngine
@@ -67,7 +80,7 @@ class MainActivity : FlutterActivity() {
     private fun setupMethodChannels(flutterEngine: FlutterEngine) {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
-                Thread {
+                heavyExecutor.execute {
                     try {
                         when (call.method) {
                             "parseDocument" -> {
@@ -87,7 +100,7 @@ class MainActivity : FlutterActivity() {
                                             null,
                                         )
                                     }
-                                    return@Thread
+                                    return@execute
                                 }
 
                                 Log.i(TAG, "parseDocument invoked format=$format")
@@ -119,7 +132,7 @@ class MainActivity : FlutterActivity() {
                         logCauseChain("Reflection load failed", e)
                         runOnUiThread { result.error("REFLECTION_ERROR", e.message, null) }
                     }
-                }.start()
+                }
             }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FILE_CHANNEL)
@@ -134,41 +147,65 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PDF_CHANNEL)
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "renderPage" -> renderPdfPage(
-                        call.argument("filePath"),
-                        call.argument("pageNumber") ?: 0,
-                        call.argument("width") ?: 800,
-                        call.argument("height"),
-                        result,
-                    )
-                    "openPdf" -> openPdf(call.argument("filePath"), result)
-                    "closePdf" -> closePdf(call.argument("filePath"), result)
-                    "getPageCount" -> getPdfPageCount(call.argument("filePath"), result)
-                    "extractPageText" -> Thread {
-                        try {
-                            val extractorClass = Class.forName("com.airdocsviewer.PdfTextExtractor")
-                            val extractorInstance = extractorClass.getConstructor(String::class.java).newInstance(TAG)
-                            val method = extractorClass.getDeclaredMethod("extractPdfPageText",
-                                String::class.java, Int::class.java, MethodChannel.Result::class.java, android.app.Activity::class.java)
-                            method.invoke(extractorInstance, call.argument<String>("filePath"), call.argument<Int>("pageNumber") ?: 1, result, this@MainActivity)
-                        } catch (e: Exception) {
-                            runOnUiThread { result.error("REFLECTION_ERROR", e.message, null) }
+                heavyExecutor.execute {
+                    when (call.method) {
+                        "renderPage" -> renderPdfPage(
+                            call.argument("filePath"),
+                            call.argument("pageNumber") ?: 0,
+                            call.argument("width") ?: 800,
+                            call.argument("height"),
+                            result,
+                        )
+                        "openPdf" -> openPdf(call.argument("filePath"), result)
+                        "closePdf" -> closePdf(call.argument("filePath"), result)
+                        "getPageCount" -> getPdfPageCount(call.argument("filePath"), result)
+                        "extractPageText" -> {
+                            try {
+                                val extractorClass = Class.forName("com.airdocsviewer.PdfTextExtractor")
+                                val extractorInstance = extractorClass.getConstructor(String::class.java).newInstance(TAG)
+                                val method = extractorClass.getDeclaredMethod(
+                                    "extractPdfPageText",
+                                    String::class.java,
+                                    Int::class.java,
+                                    MethodChannel.Result::class.java,
+                                    android.app.Activity::class.java,
+                                )
+                                method.invoke(
+                                    extractorInstance,
+                                    call.argument<String>("filePath"),
+                                    call.argument<Int>("pageNumber") ?: 1,
+                                    result,
+                                    this@MainActivity,
+                                )
+                            } catch (e: Exception) {
+                                fail(result, "REFLECTION_ERROR", e.message)
+                            }
                         }
-                    }.start()
-                    "extractTextWithPositions" -> Thread {
-                        try {
-                            val extractorClass = Class.forName("com.airdocsviewer.PdfTextExtractor")
-                            val extractorInstance = extractorClass.getConstructor(String::class.java).newInstance(TAG)
-                            val method = extractorClass.getDeclaredMethod("extractTextWithPositions",
-                                String::class.java, Int::class.java, MethodChannel.Result::class.java, android.app.Activity::class.java)
-                            method.invoke(extractorInstance, call.argument<String>("filePath"), call.argument<Int>("pageNumber") ?: 1, result, this@MainActivity)
-                        } catch (e: Exception) {
-                            runOnUiThread { result.error("REFLECTION_ERROR", e.message, null) }
+                        "extractTextWithPositions" -> {
+                            try {
+                                val extractorClass = Class.forName("com.airdocsviewer.PdfTextExtractor")
+                                val extractorInstance = extractorClass.getConstructor(String::class.java).newInstance(TAG)
+                                val method = extractorClass.getDeclaredMethod(
+                                    "extractTextWithPositions",
+                                    String::class.java,
+                                    Int::class.java,
+                                    MethodChannel.Result::class.java,
+                                    android.app.Activity::class.java,
+                                )
+                                method.invoke(
+                                    extractorInstance,
+                                    call.argument<String>("filePath"),
+                                    call.argument<Int>("pageNumber") ?: 1,
+                                    result,
+                                    this@MainActivity,
+                                )
+                            } catch (e: Exception) {
+                                fail(result, "REFLECTION_ERROR", e.message)
+                            }
                         }
-                    }.start()
-                    "getPageSize" -> getPageSize(call.argument("filePath"), call.argument("pageNumber") ?: 0, result)
-                    else -> result.notImplemented()
+                        "getPageSize" -> getPageSize(call.argument("filePath"), call.argument("pageNumber") ?: 0, result)
+                        else -> runOnUiThread { result.notImplemented() }
+                    }
                 }
             }
 
@@ -187,7 +224,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.airdocsviewer/video")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "extractVideoFrame" -> Thread {
+                    "extractVideoFrame" -> heavyExecutor.execute {
                         try {
                             val filePath = call.argument<String>("filePath")
                             // Handle both Int and Long from Flutter (small ints come as Int)
@@ -195,21 +232,23 @@ class MainActivity : FlutterActivity() {
                             
                             if (filePath == null) {
                                 runOnUiThread { result.error("INVALID_PATH", "File path is required", null) }
-                                return@Thread
+                                return@execute
                             }
                             if (!SecurityUtils.isSafeReadablePath(filePath, packageName)) {
                                 runOnUiThread {
                                     result.error("SECURITY_ERROR", "Unsupported or unsafe file path", null)
                                 }
-                                return@Thread
+                                return@execute
                             }
 
                             val bitmap = extractFirstVideoFrame(filePath, timeUs)
                             if (bitmap != null) {
+                                val scaled = scaleBitmapDown(bitmap, 720)
                                 val stream = ByteArrayOutputStream()
-                                bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
+                                scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
                                 val frameBytes = stream.toByteArray()
                                 stream.close()
+                                if (scaled !== bitmap) scaled.recycle()
                                 bitmap.recycle()
                                 runOnUiThread { result.success(frameBytes) }
                             } else {
@@ -219,7 +258,7 @@ class MainActivity : FlutterActivity() {
                             Log.e(TAG, "Video frame extraction failed", e)
                             runOnUiThread { result.error("EXTRACTION_ERROR", e.message, null) }
                         }
-                    }.start()
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -544,114 +583,159 @@ class MainActivity : FlutterActivity() {
 
     private fun openPdf(filePath: String?, result: MethodChannel.Result) {
         try {
-            if (filePath == null) return result.error("INVALID_ARGS", "Missing filePath", null)
+            if (filePath == null) return fail(result, "INVALID_ARGS", "Missing filePath")
             if (!SecurityUtils.isSafeReadablePath(filePath, packageName)) {
-                return result.error("SECURITY_ERROR", "Unsupported or unsafe file path", null)
+                return fail(result, "SECURITY_ERROR", "Unsupported or unsafe file path")
             }
             pdfRenderers[filePath]?.close()
             pdfDescriptors[filePath]?.close()
             val file = File(filePath)
-            if (!file.exists()) return result.error("FILE_NOT_FOUND", "File not found: $filePath", null)
+            if (!file.exists()) return fail(result, "FILE_NOT_FOUND", "File not found: $filePath")
             val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = PdfRenderer(descriptor)
             pdfDescriptors[filePath] = descriptor
             pdfRenderers[filePath] = renderer
-            result.success(mapOf("pageCount" to renderer.pageCount, "filePath" to filePath))
+            succeed(result, mapOf("pageCount" to renderer.pageCount, "filePath" to filePath))
         } catch (e: Exception) {
             Log.e(TAG, "Error opening PDF", e)
-            result.error("PDF_ERROR", e.message, null)
+            fail(result, "PDF_ERROR", e.message)
         }
     }
 
     private fun closePdf(filePath: String?, result: MethodChannel.Result) {
         try {
-            if (filePath == null) return result.error("INVALID_ARGS", "Missing filePath", null)
+            if (filePath == null) return fail(result, "INVALID_ARGS", "Missing filePath")
             pdfRenderers[filePath]?.close()
             pdfDescriptors[filePath]?.close()
             pdfRenderers.remove(filePath)
             pdfDescriptors.remove(filePath)
-            result.success(true)
+            succeed(result, true)
         } catch (e: Exception) {
             Log.e(TAG, "Error closing PDF", e)
-            result.error("PDF_ERROR", e.message, null)
+            fail(result, "PDF_ERROR", e.message)
         }
     }
 
     private fun renderPdfPage(filePath: String?, pageNumber: Int, width: Int, height: Int?, result: MethodChannel.Result) {
+        var descriptor: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        var page: PdfRenderer.Page? = null
+        var bitmap: Bitmap? = null
         try {
-            if (filePath == null) return result.error("INVALID_ARGS", "Missing filePath", null)
+            if (filePath == null) return fail(result, "INVALID_ARGS", "Missing filePath")
             if (!SecurityUtils.isSafeReadablePath(filePath, packageName)) {
-                return result.error("SECURITY_ERROR", "Unsupported or unsafe file path", null)
+                return fail(result, "SECURITY_ERROR", "Unsupported or unsafe file path")
             }
-            var renderer = pdfRenderers[filePath]
-            if (renderer == null) {
-                val file = File(filePath)
-                if (!file.exists()) return result.error("FILE_NOT_FOUND", "File not found: $filePath", null)
-                val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                renderer = PdfRenderer(descriptor)
-                pdfDescriptors[filePath] = descriptor
-                pdfRenderers[filePath] = renderer
+            val file = File(filePath)
+            if (!file.exists()) return fail(result, "FILE_NOT_FOUND", "File not found: $filePath")
+            descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(descriptor)
+            if (pageNumber < 0 || pageNumber >= renderer.pageCount) {
+                return fail(result, "INVALID_PAGE", "Invalid page number: $pageNumber")
             }
-            if (pageNumber < 0 || pageNumber >= renderer.pageCount) return result.error("INVALID_PAGE", "Invalid page number: $pageNumber", null)
-            val page = renderer.openPage(pageNumber)
-            val dpiScale = 2.0f
-            val renderWidth = (width * dpiScale).toInt()
-            val requestedHeight = height?.let { (it * dpiScale).toInt() }
-            val scale = renderWidth.toFloat() / page.width
-            val scaledHeight = (page.height * scale).toInt()
-            val renderHeight = requestedHeight ?: scaledHeight
-            val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-            page.close()
+            page = renderer.openPage(pageNumber)
+            var renderWidth = (width * 2f).roundToInt().coerceAtLeast(1)
+            val requestedHeight = height?.let { (it * 2f).roundToInt().coerceAtLeast(1) }
+            val scale = renderWidth.toFloat() / page.width.coerceAtLeast(1)
+            val scaledHeight = (page.height * scale).roundToInt().coerceAtLeast(1)
+            var renderHeight = requestedHeight ?: scaledHeight
+            val pixels = renderWidth.toLong() * renderHeight.toLong()
+            val maxPixels = 1024L * 1024L
+            if (pixels > maxPixels) {
+                val down = sqrt(maxPixels.toDouble() / pixels.toDouble())
+                renderWidth = (renderWidth * down).roundToInt().coerceAtLeast(1)
+                renderHeight = (renderHeight * down).roundToInt().coerceAtLeast(1)
+            }
+            bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
             val bytes = stream.toByteArray()
-            bitmap.recycle()
-            result.success(mapOf("bytes" to bytes, "width" to renderWidth, "height" to renderHeight, "pageNumber" to pageNumber))
+            stream.close()
+            succeed(
+                result,
+                mapOf(
+                    "bytes" to bytes,
+                    "width" to renderWidth,
+                    "height" to renderHeight,
+                    "pageNumber" to pageNumber,
+                ),
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error rendering PDF page", e)
-            result.error("PDF_RENDER_ERROR", e.message, null)
+            fail(result, "PDF_RENDER_ERROR", e.message)
+        } finally {
+            try {
+                page?.close()
+            } catch (_: Exception) {
+            }
+            bitmap?.recycle()
+            try {
+                renderer?.close()
+            } catch (_: Exception) {
+            }
+            try {
+                descriptor?.close()
+            } catch (_: Exception) {
+            }
         }
     }
 
     private fun getPageSize(filePath: String?, pageNumber: Int, result: MethodChannel.Result) {
         try {
-            if (filePath == null) return result.error("INVALID_ARGS", "Missing filePath", null)
+            if (filePath == null) return fail(result, "INVALID_ARGS", "Missing filePath")
             var renderer = pdfRenderers[filePath]
             if (renderer == null) {
                 val file = File(filePath)
-                if (!file.exists()) return result.error("FILE_NOT_FOUND", "File not found: $filePath", null)
+                if (!file.exists()) return fail(result, "FILE_NOT_FOUND", "File not found: $filePath")
                 val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                 renderer = PdfRenderer(descriptor)
                 pdfDescriptors[filePath] = descriptor
                 pdfRenderers[filePath] = renderer
             }
-            if (pageNumber < 0 || pageNumber >= renderer.pageCount) return result.error("INVALID_PAGE", "Invalid page number: $pageNumber", null)
+            if (pageNumber < 0 || pageNumber >= renderer.pageCount) {
+                return fail(result, "INVALID_PAGE", "Invalid page number: $pageNumber")
+            }
             val page = renderer.openPage(pageNumber)
             val width = page.width
             val height = page.height
             page.close()
-            result.success(mapOf("width" to width, "height" to height))
+            succeed(result, mapOf("width" to width, "height" to height))
         } catch (e: Exception) {
             Log.e(TAG, "Error getting page size", e)
-            result.error("PDF_ERROR", e.message, null)
+            fail(result, "PDF_ERROR", e.message)
         }
     }
 
     private fun getPdfPageCount(filePath: String?, result: MethodChannel.Result) {
         try {
-            if (filePath == null) return result.error("INVALID_ARGS", "Missing filePath", null)
+            if (filePath == null) return fail(result, "INVALID_ARGS", "Missing filePath")
             val file = File(filePath)
-            if (!file.exists()) return result.error("FILE_NOT_FOUND", "File not found: $filePath", null)
+            if (!file.exists()) return fail(result, "FILE_NOT_FOUND", "File not found: $filePath")
             val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = PdfRenderer(descriptor)
             val count = renderer.pageCount
             renderer.close()
             descriptor.close()
-            result.success(count)
+            succeed(result, count)
         } catch (e: Exception) {
             Log.e(TAG, "PDF page count error", e)
-            result.error("PDF_ERROR", e.message, null)
+            fail(result, "PDF_ERROR", e.message)
+        }
+    }
+
+    private fun scaleBitmapDown(source: Bitmap, maxEdge: Int): Bitmap {
+        val longest = maxOf(source.width, source.height)
+        if (longest <= maxEdge || longest <= 0) return source
+        val scale = maxEdge.toFloat() / longest.toFloat()
+        val width = (source.width * scale).roundToInt().coerceAtLeast(1)
+        val height = (source.height * scale).roundToInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(source, width, height, true)
+    }
+
+    companion object {
+        private val heavyExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "airdocs-heavy").apply { isDaemon = true }
         }
     }
 }

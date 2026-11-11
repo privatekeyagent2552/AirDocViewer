@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:air_docs_viewer/features/viewer/data/services/word_document_parser_service.dart';
 import 'package:xml/xml.dart';
@@ -28,9 +29,25 @@ class DocumentParserService {
   static Future<Map<String, dynamic>> parseCSV(String filePath) async {
     try {
       log.i('Parsing CSV file: $filePath');
+      const rowLimit = 4000;
+      const colLimit = 24;
+      const byteLimit = 8 * 1024 * 1024;
       final file = File(filePath);
-      final content = await file.readAsString();
-      final rows = _parseCsvRows(content);
+      final length = await file.length();
+      final truncatedFile = length > byteLimit;
+      final bytes = truncatedFile
+          ? await _readPrefix(file, byteLimit)
+          : await file.readAsBytes();
+      final content = utf8.decode(bytes, allowMalformed: true);
+      var rows = _parseCsvRows(content);
+      final truncatedRows = rows.length > rowLimit;
+      if (truncatedRows) {
+        rows = rows.sublist(0, rowLimit);
+      }
+      rows = [
+        for (final row in rows)
+          if (row.length > colLimit) row.sublist(0, colLimit) else row,
+      ];
 
       return {
         'sheets': [
@@ -43,6 +60,10 @@ class DocumentParserService {
         ],
         'format': 'CSV',
         'sheetCount': 1,
+        if (truncatedFile || truncatedRows)
+          'parseWarnings': [
+            'Showing the first $rowLimit rows and $colLimit columns so this spreadsheet fits in memory.',
+          ],
       };
     } catch (e, st) {
       log.e('Error parsing CSV', error: e, stackTrace: st);
@@ -225,6 +246,21 @@ class DocumentParserService {
       log.e('Error parsing ODS: $e');
       rethrow;
     }
+  }
+
+  static Future<List<int>> _readPrefix(File file, int maxBytes) async {
+    final builder = BytesBuilder(copy: false);
+    var remaining = maxBytes;
+    await for (final chunk in file.openRead(0, maxBytes)) {
+      if (remaining <= 0) break;
+      if (chunk.length > remaining) {
+        builder.add(chunk.sublist(0, remaining));
+        break;
+      }
+      builder.add(chunk);
+      remaining -= chunk.length;
+    }
+    return builder.takeBytes();
   }
 
   static List<List<String>> _parseCsvRows(String content) {
