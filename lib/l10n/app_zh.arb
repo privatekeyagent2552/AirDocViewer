@@ -952,6 +952,8 @@
   "viewerNotNow": "暂不",
   "viewerGotIt": "知道了",
   "viewerErrorLoadingDocument": "加载文档时出错",
+  "viewerFileOpenFailed": "无法打开此文件。文件可能已损坏或不受支持。",
+  "viewerFileTooLarge": "此文件太大，无法在此设备上打开。",
   "viewerGoBack": "返回",
   "viewerReadingTimeMinutes": "{count, plural, =1{阅读 1 分钟} other{阅读 {count} 分钟}}",
   "@viewerReadingTimeMinutes": {

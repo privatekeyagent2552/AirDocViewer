@@ -1688,6 +1688,43 @@ class AppLocalizationsUr extends AppLocalizations {
   String get viewerErrorLoadingDocument => 'دستاویز لوڈ کرنے میں خرابی';
 
   @override
+  String get viewerFileOpenFailed => 'یہ فائل نہیں کھل سکی۔ یہ خراب یا غیر معاون ہو سکتی ہے۔';
+
+  @override
+  String get viewerFileTooLarge => 'یہ فائل اس ڈیوائس پر کھولنے کے لیے بہت بڑی ہے۔';
+
+  @override
+  String get viewerOpeningPresentation => 'پریزنٹیشن کھولی جا رہی ہے...';
+
+  @override
+  String viewerSlidePosition(int current, int total) {
+    return 'سلائیڈ $current از $total';
+  }
+
+  @override
+  String get viewerPreviousSlide => 'پچھلی سلائیڈ';
+
+  @override
+  String get viewerNextSlide => 'اگلی سلائیڈ';
+
+  @override
+  String get viewerSlideDrawFailed => 'یہ سلائیڈ نہیں دکھائی جا سکی۔ آپ دوسری سلائیڈ کھول سکتے ہیں۔';
+
+  @override
+  String get viewerPptTextOnly => 'صرف متن۔ یہ پرانی پاورپوائنٹ فائل اصل رنگ اور تصاویر شامل نہیں کرتی۔';
+
+  @override
+  String get viewerNoSlideText => 'اس سلائیڈ پر کوئی متن نہیں۔';
+
+  @override
+  String get viewerNoSlides => 'اس پریزنٹیشن میں کوئی سلائیڈ نہیں۔';
+
+  @override
+  String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd) {
+    return 'قطاریں $rowStart–$rowEnd، کالم $colStart–$colEnd';
+  }
+
+  @override
   String get viewerGoBack => 'واپس جائیں';
 
   @override

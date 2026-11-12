@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:logger/logger.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 class _SearchResult {
@@ -391,32 +392,51 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
     final allText = StringBuffer();
     int totalWords = 0;
     final totalPages = _document!.pages.length;
+    // One string for every page of a long PDF will fill the 512MB heap.
+    const maxChars = 1200000;
+    var truncated = false;
 
     for (int i = 0; i < totalPages; i++) {
+      if (allText.length >= maxChars) {
+        truncated = true;
+        break;
+      }
       try {
         final pageText = await _document!.pages[i].loadText();
         if (pageText != null) {
           final text = ((pageText as dynamic).fullText ?? '') as String;
           if (text.isNotEmpty) {
+            final room = maxChars - allText.length;
+            final piece = text.length > room ? text.substring(0, room) : text;
             if (allText.isNotEmpty) {
               allText.writeln();
               allText.writeln();
             }
-            allText.write(text);
+            allText.write(piece);
+            if (piece.length < text.length) truncated = true;
             totalWords +=
-                text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+                piece.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
           }
         }
       } catch (_) {}
 
       // Report progress
       onProgress?.call(i + 1, totalPages);
+      if (truncated) break;
+    }
+
+    if (truncated) {
+      allText.writeln();
+      allText.write(
+        '[Text truncated so this PDF fits in memory. Scroll the document to read later pages.]',
+      );
     }
 
     return {
       'text': allText.toString(),
       'wordCount': totalWords,
       'pageCount': totalPages,
+      'truncated': truncated,
     };
   }
 
@@ -678,13 +698,19 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
               final charLen = query.length;
               final pageCharRects =
                   ((pageText as dynamic).charRects as List?)?.cast<PdfRect>();
-              results.add(_SearchResult(
-                page: i + 1,
-                snippet: snippet,
-                charIndex: charIdx,
-                charLength: charLen,
-                charRects: pageCharRects,
-              ));
+              // Keep a bounded set of hits. charRects is every glyph on the page.
+              if (results.length < 200) {
+                final rects = pageCharRects != null && pageCharRects.length <= 4000
+                    ? pageCharRects
+                    : null;
+                results.add(_SearchResult(
+                  page: i + 1,
+                  snippet: snippet,
+                  charIndex: charIdx,
+                  charLength: charLen,
+                  charRects: rects,
+                ));
+              }
               // When first result found, immediately navigate and show it
               if (results.length == 1 && _currentSearchResult == -1) {
                 if (mounted && searchToken == _searchCancellationToken) {
@@ -887,17 +913,13 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
     return overlays;
   }
 
-  String _pdfLoadErrorMessage(Object error) {
+  String _pdfLoadErrorMessage(BuildContext context, Object error) {
+    final l10n = AppLocalizations.of(context)!;
     final message = error.toString().toLowerCase();
     if (message.contains('password') || message.contains('encrypted')) {
-      return 'This PDF is password-protected. Please enter the password to view it.';
+      return l10n.pdfPasswordDesc;
     }
-    if (message.contains('fpdf_err_format') ||
-        message.contains('file not in pdf format') ||
-        message.contains('corrupted')) {
-      return 'This file could not be opened as a valid PDF. It may be damaged or renamed with a .pdf extension.';
-    }
-    return 'This PDF could not be loaded right now.';
+    return viewerFailureMessage(l10n, error.toString());
   }
 
   Widget _buildPdfErrorBanner(BuildContext context, Object error) {
@@ -934,15 +956,7 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Unable to open PDF',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _pdfLoadErrorMessage(error),
+                    _pdfLoadErrorMessage(context, error),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
@@ -1067,10 +1081,18 @@ class _ModernPdfViewerState extends State<ModernPdfViewer>
           }
         },
         onViewerReady: (document, controller) async {
-          log.d('PDF document loaded: ${document.pages.length} pages');
+          if (!mounted) return;
+          late final int pageCount;
+          try {
+            pageCount = document.pages.length;
+          } catch (e, st) {
+            log.e('PDF viewer ready failed', error: e, stackTrace: st);
+            return;
+          }
+          log.d('PDF document loaded: $pageCount pages');
           setState(() {
             _document = document;
-            _totalPages = document.pages.length;
+            _totalPages = pageCount;
             _isLoadingOutline = true;
             _pageTexts.clear();
             _isControllerReady = true;

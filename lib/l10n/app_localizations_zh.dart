@@ -1688,6 +1688,43 @@ class AppLocalizationsZh extends AppLocalizations {
   String get viewerErrorLoadingDocument => '加载文档时出错';
 
   @override
+  String get viewerFileOpenFailed => '无法打开此文件。文件可能已损坏或不受支持。';
+
+  @override
+  String get viewerFileTooLarge => '此文件太大，无法在此设备上打开。';
+
+  @override
+  String get viewerOpeningPresentation => 'Opening presentation...';
+
+  @override
+  String viewerSlidePosition(int current, int total) {
+    return 'Slide $current of $total';
+  }
+
+  @override
+  String get viewerPreviousSlide => 'Previous slide';
+
+  @override
+  String get viewerNextSlide => 'Next slide';
+
+  @override
+  String get viewerSlideDrawFailed => 'This slide could not be drawn. You can open another slide.';
+
+  @override
+  String get viewerPptTextOnly => 'Text only. This legacy PowerPoint file does not include the original colors or pictures.';
+
+  @override
+  String get viewerNoSlideText => 'No text on this slide.';
+
+  @override
+  String get viewerNoSlides => 'This presentation has no slides.';
+
+  @override
+  String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd) {
+    return 'Rows $rowStart–$rowEnd, columns $colStart–$colEnd';
+  }
+
+  @override
   String get viewerGoBack => '返回';
 
   @override

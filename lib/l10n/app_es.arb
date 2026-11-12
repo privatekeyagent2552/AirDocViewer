@@ -952,6 +952,8 @@
   "viewerNotNow": "Ahora no",
   "viewerGotIt": "Entendido",
   "viewerErrorLoadingDocument": "Error al cargar el documento",
+  "viewerFileOpenFailed": "No se pudo abrir este archivo. Puede estar dañado o no ser compatible.",
+  "viewerFileTooLarge": "Este archivo es demasiado grande para abrirlo en este dispositivo.",
   "viewerGoBack": "Volver",
   "viewerReadingTimeMinutes": "{count, plural, =1{1 minuto de lectura} other{{count} minutos de lectura}}",
   "@viewerReadingTimeMinutes": {

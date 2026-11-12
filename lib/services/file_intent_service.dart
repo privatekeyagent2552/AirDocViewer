@@ -28,12 +28,16 @@ class FileIntentService {
 
     // Register handler for push-based intents from Kotlin (e.g. onNewIntent)
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onFileIntent') {
-        final filePath = call.arguments as String?;
-        if (filePath != null && filePath.isNotEmpty) {
-          log.i('Push-based file intent received: $filePath');
-          _fileIntentController.add(filePath);
+      try {
+        if (call.method == 'onFileIntent') {
+          final filePath = call.arguments as String?;
+          if (filePath != null && filePath.isNotEmpty) {
+            log.i('Push-based file intent received: $filePath');
+            _fileIntentController.add(filePath);
+          }
         }
+      } catch (e, st) {
+        log.e('File intent failed', error: e, stackTrace: st);
       }
       return null;
     });

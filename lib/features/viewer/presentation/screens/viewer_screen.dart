@@ -19,9 +19,13 @@ import 'package:air_docs_viewer/features/viewer/presentation/widgets/media_viewe
 import 'package:video_player/video_player.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/document_viewer_factory.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/image_viewer.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/excel_sheet_pager.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/ppt_text_slide_pager.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/presentation_slides_viewer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/professional_sheet_viewer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/viewer_zoom_toolbar.dart';
+import 'package:air_docs_viewer/features/viewer/domain/viewer_open_failure.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/providers/document_viewer_notifier.dart';
 import 'package:air_docs_viewer/features/home/presentation/widgets/home_drawer.dart';
 import 'package:air_docs_viewer/features/home/presentation/providers/thumbnail_provider.dart';
@@ -98,9 +102,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   late GlobalKey<ImageViewerState> _imageViewerKey;
   late GlobalKey<TextDocumentViewerState> _textViewerKey;
   late GlobalKey<PresentationSlidesViewerState> _slidesViewerKey;
+  late GlobalKey<PptTextSlidePagerState> _pptPagerKey;
   late GlobalKey<RichStructuredDocumentViewerState> _structuredViewerKey;
   late GlobalKey<MediaViewerState> _mediaViewerKey;
   late GlobalKey<ProfessionalSheetViewerState> _sheetViewerKey;
+  late GlobalKey<ExcelSheetPagerState> _excelPagerKey;
   static const double _kDragCloseThreshold = 100.0;
 
   /// Path of a document whose rich WebView render failed; falls back to structured/text.
@@ -130,6 +136,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         SupportedFormats.extensionOf(widget.fileName) ??
         '';
     return SupportedFormats.isSpreadsheet(ext);
+  }
+
+  bool _pagedExcel() {
+    final ext = SupportedFormats.extensionOf(widget.filePath) ??
+        SupportedFormats.extensionOf(widget.fileName) ??
+        '';
+    return ext == 'xls' || ext == 'xlsx';
   }
 
   /// Must match the actual floating top bar content height (52).
@@ -324,7 +337,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                  '${_colLabel(r['col'] as int)}${(r['row'] as int) + 1}',
+                                  _sheetResultLabel(
+                                    r['row'] as int,
+                                    r['col'] as int,
+                                  ),
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
@@ -355,9 +371,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   List<Map<String, dynamic>> _sheetSearchResults = [];
 
-  void _performSheetSearch(String query) async {
+  String _sheetResultLabel(int row, int col) {
+    if (!_pagedExcel()) return '${_colLabel(col)}${row + 1}';
+    final pager = _excelPagerKey.currentState;
+    final absRow = row + (pager?.rowOrigin ?? 0);
+    final absCol = col + (pager?.colOrigin ?? 0);
+    return '${spreadsheetColumnLabel(absCol)}${absRow + 1}';
+  }
+
+  void _performSheetSearch(String query) {
     if (query.isEmpty) {
       setState(() => _sheetSearchResults.clear());
+      return;
+    }
+    if (_pagedExcel()) {
+      final found = _excelPagerKey.currentState?.search(query) ?? const [];
+      if (!mounted) return;
+      setState(() => _sheetSearchResults = found);
       return;
     }
     final doc = ref.read(documentViewerProvider).document;
@@ -391,7 +421,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final l10n = _l10n;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(l10n.viewerCellCopied('${_colLabel(col)}${row + 1}')),
+        content: Text(l10n.viewerCellCopied(_sheetResultLabel(row, col))),
         duration: const Duration(seconds: 1),
       ),
     );
@@ -576,17 +606,53 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     );
   }
 
+  ErrorWidgetBuilder? _previousErrorBuilder;
+
+  void _installViewerErrorWidget() {
+    _previousErrorBuilder = ErrorWidget.builder;
+    ErrorWidget.builder = (details) {
+      _log.e(
+        'Viewer build failed',
+        error: details.exception,
+        stackTrace: details.stack,
+      );
+      return Builder(
+        builder: (context) {
+          final l10n = AppLocalizations.of(context);
+          final previous = _previousErrorBuilder;
+          if (l10n == null) {
+            return previous == null
+                ? const SizedBox.shrink()
+                : previous(details);
+          }
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+              child: Text(
+                viewerFailureMessage(l10n, details.exception.toString()),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        },
+      );
+    };
+  }
+
   @override
   void initState() {
     super.initState();
+    _installViewerErrorWidget();
     _pdfViewerKey = GlobalKey<State<ModernPdfViewer>>();
     _officeViewerKey = GlobalKey<OfficeVisualViewerState>();
     _imageViewerKey = GlobalKey<ImageViewerState>();
     _textViewerKey = GlobalKey<TextDocumentViewerState>();
     _slidesViewerKey = GlobalKey<PresentationSlidesViewerState>();
+    _pptPagerKey = GlobalKey<PptTextSlidePagerState>();
     _structuredViewerKey = GlobalKey<RichStructuredDocumentViewerState>();
     _mediaViewerKey = GlobalKey<MediaViewerState>();
     _sheetViewerKey = GlobalKey<ProfessionalSheetViewerState>();
+    _excelPagerKey = GlobalKey<ExcelSheetPagerState>();
     _menuController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -684,6 +750,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   @override
   void dispose() {
+    if (_previousErrorBuilder != null &&
+        ErrorWidget.builder != _previousErrorBuilder) {
+      ErrorWidget.builder = _previousErrorBuilder!;
+    }
     _log.d('dispose: ending session for ');
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     // End viewing session using saved reference (ref is unsafe in dispose)
@@ -729,18 +799,42 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       pathExt == 'pptx' ||
                       fromDoc == 'PPT' ||
                       fromDoc == 'PPTX';
-                  // Bytes decide: ZIP = real PPTX visual. Never fake slides.
+                  // ZIP is a real PPTX and is drawn one slide at a time.
+                  // OLE .ppt is text, one slide at a time.
                   final pptxZip = isPptFamily &&
                       _fileIsZipOoxml(widget.filePath);
+                  if (isPptFamily && !pptxZip) {
+                    if (docState.hasError) {
+                      return _buildErrorState(context, ref, docState);
+                    }
+                    if (docState.isLoading ||
+                        docState.phase == ViewerPhase.preparing) {
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(),
+                            if (docState.parsingStatus != null) ...[
+                              const SizedBox(height: 16),
+                              Text(docState.parsingStatus!),
+                            ],
+                          ],
+                        ),
+                      );
+                    }
+                    return Padding(
+                      padding: _contentOverlayPadding(context),
+                      child: _buildPptTextPager(),
+                    );
+                  }
                   final richWeb =
                       SupportedFormats.isRichWeb(pathExt) ||
                       SupportedFormats.isRichWeb(fromDoc.toLowerCase()) ||
                       pptxZip;
                   final useVisual = richWeb &&
                       !docState.hasError &&
-                      (pptxZip ||
-                          (!docState.usingFallback &&
-                              _richFailedForPath != widget.filePath));
+                      !docState.usingFallback &&
+                      _richFailedForPath != widget.filePath;
 
                   if (useVisual) {
                     final kind = (fromDoc == 'DOCX' || pathExt == 'docx')
@@ -775,8 +869,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                   if (docState.document != null) {
                     return Padding(
                       padding: _contentOverlayPadding(context),
-                      child: _buildContentViewer(
-                        document: docState.document!,
+                      child: Builder(
+                        builder: (context) {
+                          try {
+                            return _buildContentViewer(
+                              document: docState.document!,
+                            );
+                          } catch (e, st) {
+                            _log.e(
+                              'Viewer content build failed',
+                              error: e,
+                              stackTrace: st,
+                            );
+                            return _inlineOpenFailure(context, e);
+                          }
+                        },
                       ),
                     );
                   }
@@ -1013,10 +1120,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               _log.w(
                 'Office visual failed: $message — loading fallback',
               );
-              // Real .pptx must stay on the visual renderer. Fallback
-              // cards look like a different (wrong) presentation.
-              if (kind == OfficeVisualKind.presentation &&
-                  !message.contains('Legacy .ppt')) {
+              // PPTX keeps its own slide pager. A failed DOCX asks for text.
+              if (kind == OfficeVisualKind.presentation) {
                 return;
               }
               if (!mounted) return;
@@ -1082,6 +1187,47 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Widget _buildSpreadsheetWithZoom({required ParsedDocumentEntity document}) {
+    if (_pagedExcel()) {
+      final ext = SupportedFormats.extensionOf(widget.filePath) ??
+          SupportedFormats.extensionOf(widget.fileName) ??
+          '';
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: ExcelSheetPager(
+              key: _excelPagerKey,
+              filePath: widget.filePath,
+              format: ext == 'xls' ? 'XLS' : 'XLSX',
+              sheetViewerKey: _sheetViewerKey,
+              initialZoom: _sheetZoom,
+              onZoomChanged: (zoom) {
+                if (!mounted) return;
+                if ((zoom - _sheetZoom).abs() < 0.005) return;
+                setState(() => _sheetZoom = zoom);
+              },
+              onSelectionChanged: (cellRef, value) {
+                setState(() {
+                  _sheetCellRef = cellRef;
+                  _sheetCellValue = value;
+                });
+              },
+              onWindowSettled: () {
+                if (!mounted || _sheetSearchResults.isEmpty) return;
+                setState(() => _sheetSearchResults.clear());
+              },
+            ),
+          ),
+          _buildFloatingZoomToolbar(
+            zoom: _sheetZoom,
+            minZoom: ProfessionalSheetViewer.minZoom,
+            maxZoom: ProfessionalSheetViewer.maxZoom,
+            onZoomOut: () => _sheetViewerKey.currentState?.zoomOut(),
+            onZoomIn: () => _sheetViewerKey.currentState?.zoomIn(),
+            onFit: () => _sheetViewerKey.currentState?.fitToWidth(),
+          ),
+        ],
+      );
+    }
     return Stack(
       children: [
         Positioned.fill(
@@ -1116,6 +1262,48 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     );
   }
 
+  String? _presentationNotice(ParsedDocumentEntity document) {
+    for (final warning in document.parseWarnings) {
+      if (warning.contains('fits in memory') ||
+          warning.contains('partial copy') ||
+          warning.contains('too large')) {
+        return warning;
+      }
+    }
+    if (document.format.toUpperCase() == 'PPTX') {
+      return 'Showing slide text only. This file is too large to draw every slide on this device.';
+    }
+    return null;
+  }
+
+  Widget _buildPptTextPager() {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: PptTextSlidePager(
+            key: _pptPagerKey,
+            filePath: widget.filePath,
+            onTap: _toggleControls,
+            zoom: _slidesZoom,
+            onZoomChanged: (zoom) {
+              if (!mounted) return;
+              if ((zoom - _slidesZoom).abs() < 0.005) return;
+              setState(() => _slidesZoom = zoom);
+            },
+          ),
+        ),
+        _buildFloatingZoomToolbar(
+          zoom: _slidesZoom,
+          minZoom: PptTextSlidePager.minZoom,
+          maxZoom: PptTextSlidePager.maxZoom,
+          onZoomOut: () => _pptPagerKey.currentState?.zoomOut(),
+          onZoomIn: () => _pptPagerKey.currentState?.zoomIn(),
+          onFit: () => _pptPagerKey.currentState?.fitToWidth(),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPresentationSlidesWithZoom({
     required ParsedDocumentEntity document,
   }) {
@@ -1129,6 +1317,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             onTap: _toggleControls,
             zoom: _slidesZoom,
             showLegacyNotice: isLegacyPpt,
+            notice: _presentationNotice(document),
             onZoomChanged: (zoom) {
               if (!mounted) return;
               if ((zoom - _slidesZoom).abs() < 0.005) return;
@@ -1148,7 +1337,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     );
   }
 
+  Widget _inlineOpenFailure(BuildContext context, Object error) {
+    final l10n = AppLocalizations.of(context)!;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Text(
+          viewerFailureMessage(l10n, ViewerOpenFailure.codeFor(error)),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
   Widget _buildContentViewer({required ParsedDocumentEntity document}) {
+    final failedOpen = ViewerOpenFailure.codeForDocument(document);
+    if (failedOpen != null) {
+      return _inlineOpenFailure(context, failedOpen);
+    }
     final format = document.format.toUpperCase();
     _log.d(
       'Building viewer for format=$format rich=${document.hasRichDocument} '
@@ -1216,17 +1422,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       );
     }
 
-    // ZIP .pptx always uses the visual renderer (real slides, not text cards).
+    // ZIP .pptx is drawn one slide at a time. OLE .ppt is text, one slide
+    // at a time, and does not use the capped bulk slide list.
     final formatExt = format.toLowerCase();
-    final pptxZip = (format == 'PPT' ||
-            format == 'PPTX' ||
-            formatExt == 'ppt' ||
-            formatExt == 'pptx') &&
-        _fileIsZipOoxml(widget.filePath);
-    if (pptxZip ||
-        (SupportedFormats.isRichWeb(formatExt) &&
-            !ref.read(documentViewerProvider).usingFallback &&
-            _richFailedForPath != widget.filePath)) {
+    final pptFamily = format == 'PPT' ||
+        format == 'PPTX' ||
+        formatExt == 'ppt' ||
+        formatExt == 'pptx';
+    if (pptFamily && !_fileIsZipOoxml(widget.filePath)) {
+      return _buildPptTextPager();
+    }
+    final pptxZip = pptFamily && _fileIsZipOoxml(widget.filePath);
+    final visualBlocked = ref.read(documentViewerProvider).usingFallback ||
+        _richFailedForPath == widget.filePath;
+    if (!visualBlocked &&
+        (pptxZip || SupportedFormats.isRichWeb(formatExt))) {
       return _buildOfficeVisualWithZoom(
         kind: format == 'DOCX'
             ? OfficeVisualKind.word
@@ -1234,8 +1444,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       );
     }
 
-    // Legacy OLE .ppt only: honest text, labelled as not original design.
-    if (document.slides.isNotEmpty && format == 'PPT' && !pptxZip) {
+    // OLE .ppt, and a PPTX that was too large to draw: slide text.
+    if (document.slides.isNotEmpty &&
+        (format == 'PPT' || format == 'PPTX')) {
       return _buildPresentationSlidesWithZoom(document: document);
     }
 
@@ -1742,11 +1953,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           },
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      _log.e('Copy failed', error: e, stackTrace: st);
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.viewerErrorPrefix(e.toString()))),
+          SnackBar(
+            content: Text(viewerFailureMessage(l10n, e.toString())),
+          ),
         );
       }
     }
@@ -2666,7 +2880,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Text(
-                  state.error ?? l10n.viewerErrorLoadingDocument,
+                  viewerFailureMessage(l10n, state.error),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),

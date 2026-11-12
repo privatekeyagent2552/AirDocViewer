@@ -7,6 +7,7 @@ import 'package:air_docs_viewer/core/services/storage_service.dart';
 import 'package:air_docs_viewer/core/services/file_security_validator.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/features/viewer/domain/viewer_open_failure.dart';
 import 'package:air_docs_viewer/features/viewer/data/providers/repository_providers.dart';
 
 final log = Logger();
@@ -119,6 +120,19 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
         _ => throw UnsupportedError('No Office fallback for .$extension'),
       };
       if (!_canApply(gen)) return;
+      final failure = ViewerOpenFailure.codeForDocument(document);
+      if (failure != null) {
+        log.w(
+          'Fallback produced no content after a failure ($failure) '
+          'warnings=${document.parseWarnings.length}',
+        );
+        state = ParsedDocumentState(
+          isLoading: false,
+          phase: ViewerPhase.error,
+          error: failure,
+        );
+        return;
+      }
 
       state = ParsedDocumentState(
         document: document,
@@ -133,7 +147,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
       state = state.copyWith(
         isLoading: false,
         phase: ViewerPhase.error,
-        error: e.toString(),
+        error: ViewerOpenFailure.codeFor(e),
       );
     }
   }
@@ -220,6 +234,19 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
         case OpenStrategy.parserFirst:
           document = await _parseBySpec(spec);
           if (!_canApply(gen)) return;
+          final failure = ViewerOpenFailure.codeForDocument(document);
+          if (failure != null) {
+            log.w(
+              'Parse produced no content after a failure ($failure) '
+              'warnings=${document.parseWarnings.length}',
+            );
+            state = ParsedDocumentState(
+              isLoading: false,
+              phase: ViewerPhase.error,
+              error: failure,
+            );
+            return;
+          }
           state = ParsedDocumentState(
             document: document,
             isLoading: false,
@@ -239,7 +266,7 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
       state = state.copyWith(
         isLoading: false,
         phase: ViewerPhase.error,
-        error: e.toString(),
+        error: ViewerOpenFailure.codeFor(e),
       );
     }
   }

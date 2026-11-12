@@ -1,8 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:logger/logger.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/pinch_zoom_listener.dart';
 import 'package:air_docs_viewer/l10n/app_localizations.dart';
+
+/// Excel-style column title for a zero-based column index.
+String spreadsheetColumnLabel(int index) {
+  var value = index;
+  var label = '';
+  do {
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = (value ~/ 26) - 1;
+  } while (value >= 0);
+  return label;
+}
 
 /// Professional Spreadsheet Viewer — virtualized for 50k+ rows.
 class ProfessionalSheetViewer extends StatefulWidget {
@@ -10,6 +23,15 @@ class ProfessionalSheetViewer extends StatefulWidget {
   final void Function(String?, String)? onSelectionChanged;
   final double initialZoom;
   final ValueChanged<double>? onZoomChanged;
+
+  /// Absolute index of the first row in [sheet].
+  final int rowOrigin;
+
+  /// Absolute index of the first column in [sheet].
+  final int colOrigin;
+
+  /// Changes when [sheet] is a different window. Zoom rebuilds keep the token.
+  final int windowToken;
 
   static const double minZoom = 0.3;
   static const double maxZoom = 3.0;
@@ -20,6 +42,9 @@ class ProfessionalSheetViewer extends StatefulWidget {
     this.onSelectionChanged,
     this.initialZoom = 1.0,
     this.onZoomChanged,
+    this.rowOrigin = 0,
+    this.colOrigin = 0,
+    this.windowToken = 0,
     super.key,
   });
 
@@ -29,6 +54,7 @@ class ProfessionalSheetViewer extends StatefulWidget {
 }
 
 class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
+  static final _log = Logger();
   late ScrollController _hController;
   late ScrollController _vDataController;
   late ScrollController _vRowController;
@@ -68,6 +94,8 @@ class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
 
   late List<List<String>> _rows;
   late List<String> _headers;
+  bool _prepareFailed = false;
+  Object? _prepareError;
 
   // Per-column widths (resizable by user)
   late List<double> _colWidths;
@@ -92,19 +120,47 @@ class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
 
     _vRowController.addListener(_syncRowToData);
     _vDataController.addListener(_syncDataToRow);
-    _prepareData();
+    _rows = <List<String>>[];
+    _headers = <String>[];
+    _colWidths = <double>[];
+    try {
+      _prepareData();
+    } catch (e, st) {
+      _prepareFailed = true;
+      _prepareError = e;
+      _log.e('Spreadsheet view failed', error: e, stackTrace: st);
+    }
   }
 
   @override
   void didUpdateWidget(covariant ProfessionalSheetViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.windowToken != widget.windowToken) {
+      try {
+        _prepareFailed = false;
+        _prepareError = null;
+        _prepareData();
+        _selectAll = false;
+        _selRow = null;
+        _selCol = null;
+        _selCellRow = null;
+        _selCellCol = null;
+      } catch (e, st) {
+        _prepareFailed = true;
+        _prepareError = e;
+        _log.e('Spreadsheet view failed', error: e, stackTrace: st);
+      }
+    }
     if (oldWidget.initialZoom != widget.initialZoom) {
       setState(() => _zoom = widget.initialZoom);
     }
   }
 
   void _prepareData() {
-    _headers = _colLabels(widget.sheet.colCount);
+    _headers = List<String>.generate(
+      widget.sheet.colCount,
+      (index) => spreadsheetColumnLabel(widget.colOrigin + index),
+    );
     _colWidths = List.filled(widget.sheet.colCount, _baseCellW);
     _rows = widget.sheet.rows.map((row) {
       final r = List<String>.from(row);
@@ -117,18 +173,25 @@ class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
     }).toList();
   }
 
-  List<String> _colLabels(int count) {
-    final h = <String>[];
-    for (int i = 0; i < count; i++) {
-      var v = i;
-      var l = '';
-      do {
-        l = String.fromCharCode(65 + (v % 26)) + l;
-        v = (v ~/ 26) - 1;
-      } while (v >= 0);
-      h.add(l);
+  void jumpToLocalRow(int row) {
+    if (!_vDataController.hasClients) return;
+    final max = _vDataController.position.maxScrollExtent;
+    _vDataController.jumpTo((row * _cellH).clamp(0.0, max));
+  }
+
+  void jumpToLocalCol(int col) {
+    if (!_hController.hasClients) return;
+    if (col <= 0) {
+      _hController.jumpTo(0);
+      return;
     }
-    return h;
+    var x = 0.0;
+    final last = col < _headers.length ? col : _headers.length;
+    for (var i = 0; i < last; i++) {
+      x += _colW(i);
+    }
+    final max = _hController.position.maxScrollExtent;
+    _hController.jumpTo(x.clamp(0.0, max));
   }
 
   void _syncRowToData() {
@@ -269,13 +332,14 @@ class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
         allData,
       );
     } else if (_selCellRow != null && _selCellCol != null) {
-      final cellRef = '${_headers[_selCellCol!]}${_selCellRow! + 1}';
+      final cellRef =
+          '${_headers[_selCellCol!]}${widget.rowOrigin + _selCellRow! + 1}';
       final value = _rows[_selCellRow!][_selCellCol!];
       widget.onSelectionChanged!(cellRef, value);
     } else if (_selRow != null) {
       final rowValues = _rows[_selRow!].join(', ');
       widget.onSelectionChanged!(
-        'Row ${_formatNumber(context, _selRow! + 1)}',
+        'Row ${_formatNumber(context, widget.rowOrigin + _selRow! + 1)}',
         rowValues,
       );
     } else if (_selCol != null) {
@@ -330,10 +394,20 @@ class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
 
   @override
   Widget build(BuildContext context) {
-    if (_rows.isEmpty) {
+    final l10n = AppLocalizations.of(context)!;
+    if (_prepareFailed) {
       return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Text(
-              AppLocalizations.of(context)!.sheetNoData(widget.sheet.name)));
+            viewerFailureMessage(l10n, _prepareError?.toString()),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    if (_rows.isEmpty) {
+      return Center(child: Text(l10n.sheetNoData(widget.sheet.name)));
     }
 
     final colors = _ThemeColors.of(context);
@@ -378,7 +452,7 @@ class ProfessionalSheetViewerState extends State<ProfessionalSheetViewer> {
                           cacheExtent: 800,
                           padding: EdgeInsets.zero,
                           itemBuilder: (ctx, i) => _RowHdrCell(
-                            label: _formatNumber(ctx, i + 1),
+                            label: _formatNumber(ctx, widget.rowOrigin + i + 1),
                             h: ch,
                             colors: colors,
                             sel: _selRow == i || _selectAll,

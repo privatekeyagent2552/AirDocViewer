@@ -1688,6 +1688,43 @@ class AppLocalizationsFr extends AppLocalizations {
   String get viewerErrorLoadingDocument => 'Erreur lors du chargement du document';
 
   @override
+  String get viewerFileOpenFailed => 'Impossible d\'ouvrir ce fichier. Il est peut-être endommagé ou non pris en charge.';
+
+  @override
+  String get viewerFileTooLarge => 'Ce fichier est trop volumineux pour être ouvert sur cet appareil.';
+
+  @override
+  String get viewerOpeningPresentation => 'Opening presentation...';
+
+  @override
+  String viewerSlidePosition(int current, int total) {
+    return 'Slide $current of $total';
+  }
+
+  @override
+  String get viewerPreviousSlide => 'Previous slide';
+
+  @override
+  String get viewerNextSlide => 'Next slide';
+
+  @override
+  String get viewerSlideDrawFailed => 'This slide could not be drawn. You can open another slide.';
+
+  @override
+  String get viewerPptTextOnly => 'Text only. This legacy PowerPoint file does not include the original colors or pictures.';
+
+  @override
+  String get viewerNoSlideText => 'No text on this slide.';
+
+  @override
+  String get viewerNoSlides => 'This presentation has no slides.';
+
+  @override
+  String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd) {
+    return 'Rows $rowStart–$rowEnd, columns $colStart–$colEnd';
+  }
+
+  @override
   String get viewerGoBack => 'Retour';
 
   @override

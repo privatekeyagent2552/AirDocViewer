@@ -1688,6 +1688,43 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerErrorLoadingDocument => 'ドキュメントの読み込みエラー';
 
   @override
+  String get viewerFileOpenFailed => 'このファイルを開けませんでした。破損しているか、対応していない形式の可能性があります。';
+
+  @override
+  String get viewerFileTooLarge => 'このファイルは大きすぎるため、この端末では開けません。';
+
+  @override
+  String get viewerOpeningPresentation => 'Opening presentation...';
+
+  @override
+  String viewerSlidePosition(int current, int total) {
+    return 'Slide $current of $total';
+  }
+
+  @override
+  String get viewerPreviousSlide => 'Previous slide';
+
+  @override
+  String get viewerNextSlide => 'Next slide';
+
+  @override
+  String get viewerSlideDrawFailed => 'This slide could not be drawn. You can open another slide.';
+
+  @override
+  String get viewerPptTextOnly => 'Text only. This legacy PowerPoint file does not include the original colors or pictures.';
+
+  @override
+  String get viewerNoSlideText => 'No text on this slide.';
+
+  @override
+  String get viewerNoSlides => 'This presentation has no slides.';
+
+  @override
+  String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd) {
+    return 'Rows $rowStart–$rowEnd, columns $colStart–$colEnd';
+  }
+
+  @override
   String get viewerGoBack => '戻る';
 
   @override

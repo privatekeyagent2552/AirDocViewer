@@ -117,13 +117,14 @@ abstract final class SupportedFormats {
   static const xlsx = FormatSpec(
     extension: 'xlsx',
     viewerKind: ViewerKind.spreadsheet,
-    openStrategy: OpenStrategy.parserFirst,
+    // The grid is read one window at a time. A full parse is not kept.
+    openStrategy: OpenStrategy.direct,
     category: 'spreadsheets',
   );
   static const xls = FormatSpec(
     extension: 'xls',
     viewerKind: ViewerKind.spreadsheet,
-    openStrategy: OpenStrategy.parserFirst,
+    openStrategy: OpenStrategy.direct,
     category: 'spreadsheets',
   );
   static const csv = FormatSpec(

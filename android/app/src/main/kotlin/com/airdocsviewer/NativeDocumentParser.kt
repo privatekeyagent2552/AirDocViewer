@@ -3,7 +3,6 @@ package com.airdocsviewer
 import android.app.Activity
 import android.util.Log
 import io.flutter.plugin.common.MethodChannel
-import org.apache.poi.hslf.usermodel.HSLFSlideShow
 import org.apache.poi.hssf.eventusermodel.FormatTrackingHSSFListener
 import org.apache.poi.hssf.eventusermodel.HSSFListener
 import org.apache.poi.hssf.eventusermodel.MissingRecordAwareHSSFListener
@@ -19,6 +18,8 @@ import org.apache.poi.hssf.record.BoundSheetRecord
 import org.apache.poi.hssf.record.FormulaRecord
 import org.apache.poi.hssf.record.LabelRecord
 import org.apache.poi.hssf.record.LabelSSTRecord
+import org.apache.poi.hssf.record.MulBlankRecord
+import org.apache.poi.hssf.record.MulRKRecord
 import org.apache.poi.hssf.record.NumberRecord
 import org.apache.poi.hssf.record.RKRecord
 import org.apache.poi.hssf.record.SSTRecord
@@ -30,12 +31,11 @@ import org.apache.poi.hwpf.usermodel.Range as HwpfRange
 import org.apache.poi.openxml4j.opc.OPCPackage
 import org.apache.poi.openxml4j.opc.PackagingURIHelper
 import org.apache.poi.openxml4j.util.ZipSecureFile
+import org.apache.poi.poifs.filesystem.DocumentEntry
 import org.apache.poi.poifs.filesystem.POIFSFileSystem
-import org.apache.poi.sl.usermodel.TextShape
 import org.apache.poi.ss.usermodel.DataFormatter
 import org.apache.poi.ss.util.CellReference
 import org.apache.poi.util.IOUtils
-import org.apache.poi.xslf.usermodel.XMLSlideShow
 import org.apache.poi.xssf.eventusermodel.XSSFReader
 import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler
 import org.apache.poi.xssf.model.SharedStrings
@@ -54,20 +54,30 @@ import org.xml.sax.Attributes
 import org.xml.sax.InputSource
 import org.xml.sax.SAXException
 import org.xml.sax.helpers.DefaultHandler
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
-import java.io.PrintWriter
-import java.io.StringWriter
+import java.io.InputStreamReader
+import java.nio.charset.Charset
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 import javax.xml.parsers.SAXParserFactory
 
 class NativeDocumentParser(private val TAG: String) {
 
     /**
-     * Hard caps so a single document cannot fill the 512MB Android large heap.
-     * Callers may request less (thumbnails); they cannot request more.
+     * Hard caps for a full-workbook parse. The spreadsheet viewer does not use
+     * that path. It calls [handleReadSheetWindow], which returns one rectangle
+     * so later rows, columns, and sheets stay reachable.
      */
     private val maxRowsHard = 4_000
     private val maxColsHard = 24
@@ -83,11 +93,39 @@ class NativeDocumentParser(private val TAG: String) {
     private val maxRetainedChars = 1_200_000
     private val maxRetainedCells = 60_000
     private val maxXlsBytes = 32L * 1024 * 1024
+    /** One on-screen rectangle. Callers cannot ask for a larger one. */
+    private val windowRowsMax = 200
+    private val windowColsMax = 30
+    /** A single cell longer than this is cut. One huge cell must not fill the heap. */
+    private val windowCellChars = 2_048
+    /** A BIFF body above this is skipped. Normal cell records are a few kilobytes. */
+    private val maxWindowRecordBytes = 1_048_576
     private val maxDocBytes = 8L * 1024 * 1024
-    private val maxPptBytes = 12L * 1024 * 1024
-    private val maxPptxBytes = 48L * 1024 * 1024
     private val maxDocxXmlBytes = 12L * 1024 * 1024
     private val maxCsvBytes = 8L * 1024 * 1024
+    /**
+     * One slide's drawing XML. The parser stops instead of building a DOM,
+     * and ppt/media is never opened.
+     */
+    private val maxSlideXmlBytes = 768L * 1024
+    /**
+     * Bytes read from the PowerPoint Document stream. Picture bytes live in
+     * a different OLE stream and are not read.
+     */
+    private val maxPptDocumentBytes = 8L * 1024 * 1024
+    /** Text kept for Flutter. Three copies (slides, plain text, blocks) stay under a few MB. */
+    private val maxPresentationChars = 400_000
+    private val maxSlideChars = 12_000
+    /**
+     * One paged .ppt slide. The viewer asks for a single slide, so this does
+     * not apply to the other slides and does not drop them.
+     */
+    private val maxPagedSlideChars = 100_000
+    /** One picture inside the slide on screen. Larger pictures are placeholders. */
+    private val maxOnePictureBytes = 2_500_000L
+    /** Pictures copied for the current slide. The rest of ppt/media stays in the zip. */
+    private val maxSlideMediaBytes = 8L * 1024 * 1024
+    private val pptSlideXml = Regex("""(?:^|/)ppt/slides/slide(\d+)\.xml$""")
 
     private fun configurePoiLimits() {
         // One record / one zip entry must fail with an exception, not an OOM kill.
@@ -157,12 +195,12 @@ class NativeDocumentParser(private val TAG: String) {
         fun replySuccess(data: Any?) {
             if (replied) return
             replied = true
-            deliverResult { result.success(data) }
+            deliverResult(result) { result.success(data) }
         }
         fun replyError(code: String, message: String?) {
             if (replied) return
             replied = true
-            deliverResult { result.error(code, message, null) }
+            deliverResult(result) { result.error(code, message, null) }
         }
         try {
             configurePoiLimits()
@@ -191,38 +229,195 @@ class NativeDocumentParser(private val TAG: String) {
             val duration = System.currentTimeMillis() - startTime
             Log.i(TAG, "Parse completed in ${duration}ms")
             replySuccess(parsedData)
-        } catch (_: OutOfMemoryError) {
-            // Error, not Exception: this is what escaped Method.invoke as
-            // "Reflection load failed" / InvocationTargetException.
-            Log.e(TAG, "Parse ran out of memory")
-            replyError(
-                "PARSE_ERROR",
-                "This file is too large to open completely on this device.",
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Parse error", e)
-            logCauseChain("Parse error", e)
-            val sw = StringWriter()
-            e.printStackTrace(PrintWriter(sw))
-            replyError("PARSE_ERROR", "${e.message}\n${sw}")
+        } catch (t: Throwable) {
+            // Includes OutOfMemoryError. The reply is a short sentence.
+            // The stack stays in logcat, not on the Flutter screen.
+            Log.e(TAG, "Parse error", t)
+            logCauseChain("Parse error", t)
+            replyError("PARSE_ERROR", failureMessage(t))
         }
     }
 
     /** Finish the platform reply on the UI thread before the worker keeps another document alive. */
-    private fun deliverResult(block: () -> Unit) {
+    private fun deliverResult(result: MethodChannel.Result, block: () -> Unit) {
         val latch = CountDownLatch(1)
         try {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 try {
                     block()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Platform reply failed", t)
+                    try {
+                        result.error("PARSE_ERROR", failureMessage(t), null)
+                    } catch (_: Throwable) {
+                    }
                 } finally {
                     latch.countDown()
                 }
             }
-        } catch (_: Exception) {
+        } catch (t: Throwable) {
+            Log.e(TAG, "Could not post platform reply", t)
             latch.countDown()
         }
-        latch.await(60, TimeUnit.SECONDS)
+        try {
+            latch.await(60, TimeUnit.SECONDS)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun failureMessage(t: Throwable): String {
+        val text = t.message.orEmpty()
+        val oom = t is OutOfMemoryError ||
+            generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+        return if (oom || text.contains("too large", ignoreCase = true)) {
+            "This file is too large to open completely on this device."
+        } else {
+            "This file could not be opened."
+        }
+    }
+
+    /**
+     * One .pptx slide for the WebView. Opens the zip, copies that slide's XML
+     * and only the pictures it references, then closes the zip.
+     */
+    fun handleReadPptxSlide(
+        filePath: String?,
+        slideIndex: Int?,
+        mediaDir: String?,
+        packagePath: String?,
+        result: MethodChannel.Result,
+        activity: Activity,
+    ) {
+        var replied = false
+        fun replySuccess(data: Any?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.success(data) }
+        }
+        fun replyError(code: String, message: String?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.error(code, message, null) }
+        }
+        try {
+            if (activity.isDestroyed) {
+                replyError("PARSE_ERROR", "This file could not be opened.")
+                return
+            }
+            if (filePath.isNullOrBlank() || mediaDir.isNullOrBlank() || packagePath.isNullOrBlank()) {
+                replyError("INVALID_ARGS", "This file could not be opened.")
+                return
+            }
+            val source = File(filePath)
+            val pictures = File(mediaDir)
+            val pkg = File(packagePath)
+            if (!source.isFile || !isInsideCache(activity, pictures) || !isInsideCache(activity, pkg)) {
+                replyError("PARSE_ERROR", "This file could not be opened.")
+                return
+            }
+            replySuccess(readPptxSlidePage(source, slideIndex ?: 0, pictures, pkg))
+        } catch (t: Throwable) {
+            Log.e(TAG, "readPptxSlide failed", t)
+            replyError("PARSE_ERROR", failureMessage(t))
+        }
+    }
+
+    /**
+     * One .ppt slide of text. Walks the PowerPoint Document stream and keeps
+     * only the requested slide. Does not construct HSLFSlideShow and does not
+     * open the Pictures stream.
+     */
+    fun handleReadPptSlide(
+        filePath: String?,
+        slideIndex: Int?,
+        result: MethodChannel.Result,
+        activity: Activity,
+    ) {
+        var replied = false
+        fun replySuccess(data: Any?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.success(data) }
+        }
+        fun replyError(code: String, message: String?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.error(code, message, null) }
+        }
+        try {
+            if (activity.isDestroyed || filePath.isNullOrBlank()) {
+                replyError("PARSE_ERROR", "This file could not be opened.")
+                return
+            }
+            val source = File(filePath)
+            if (!source.isFile) {
+                replyError("PARSE_ERROR", "This file could not be opened.")
+                return
+            }
+            replySuccess(readPptSlidePage(source, slideIndex ?: 0))
+        } catch (t: Throwable) {
+            Log.e(TAG, "readPptSlide failed", t)
+            replyError("PARSE_ERROR", failureMessage(t))
+        }
+    }
+
+    /**
+     * One rectangle of one sheet. Does not build a workbook, a stylesheet, or
+     * a shared-string table for the rest of the file.
+     */
+    fun handleReadSheetWindow(
+        filePath: String?,
+        format: String?,
+        sheetIndex: Int?,
+        startRow: Int?,
+        rowCount: Int?,
+        startCol: Int?,
+        colCount: Int?,
+        result: MethodChannel.Result,
+        activity: Activity,
+    ) {
+        var replied = false
+        fun replySuccess(data: Any?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.success(data) }
+        }
+        fun replyError(code: String, message: String?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.error(code, message, null) }
+        }
+        try {
+            configurePoiLimits()
+            if (activity.isDestroyed || filePath.isNullOrBlank() || format.isNullOrBlank()) {
+                replyError("PARSE_ERROR", "This file could not be opened.")
+                return
+            }
+            val source = File(filePath)
+            if (!source.isFile) {
+                replyError("PARSE_ERROR", "This file could not be opened.")
+                return
+            }
+            val rows = (rowCount ?: windowRowsMax).coerceIn(1, windowRowsMax)
+            val cols = (colCount ?: windowColsMax).coerceIn(1, windowColsMax)
+            val sheet = (sheetIndex ?: 0).coerceAtLeast(0)
+            val row = (startRow ?: 0).coerceAtLeast(0)
+            val col = (startCol ?: 0).coerceAtLeast(0)
+            val started = System.currentTimeMillis()
+            val data = when (format.uppercase()) {
+                "XLSX" -> readXlsxWindow(source, sheet, row, rows, col, cols)
+                "XLS" -> readXlsWindow(source, sheet, row, rows, col, cols)
+                else -> throw IllegalArgumentException("Unsupported format")
+            }
+            logStep(
+                "readSheetWindow ${format.uppercase()} sheet=$sheet " +
+                    "rows=$row+$rows cols=$col+$cols ${System.currentTimeMillis() - started}ms",
+            )
+            replySuccess(data)
+        } catch (t: Throwable) {
+            Log.e(TAG, "readSheetWindow failed", t)
+            replyError("PARSE_ERROR", failureMessage(t))
+        }
     }
 
     private fun parseXLSX(filePath: String, maxRows: Int?, maxCols: Int?, maxSheets: Int?): Map<String, Any> {
@@ -350,281 +545,1135 @@ class NativeDocumentParser(private val TAG: String) {
         logStep("parsePresentation:start ($format)")
         val file = File(filePath)
         val normalized = format.uppercase()
-        if (normalized == "PPT") {
-            ensureFileSize(file, maxPptBytes, "This .ppt presentation")
-        } else {
-            ensureFileSize(file, maxPptxBytes, "This .pptx presentation")
-        }
-        // Open from a file, not an InputStream. POI buffers an entire InputStream
-        // into one byte[] (the whole deck, including pictures) before parsing.
-        // HSLFSlideShow has no File constructor; POIFSFileSystem(File) reads the
-        // OLE container from disk and HSLFSlideShow takes ownership of it.
-        logStep("parsePresentation:before open")
-        val slideShow: org.apache.poi.sl.usermodel.SlideShow<*, *> = if (normalized == "PPT") {
-            val fs = POIFSFileSystem(file)
-            try {
-                HSLFSlideShow(fs)
-            } catch (t: Throwable) {
-                try {
-                    fs.close()
-                } catch (_: Exception) {
-                }
-                throw t
-            }
-        } else {
-            XMLSlideShow(OPCPackage.open(file))
-        } as org.apache.poi.sl.usermodel.SlideShow<*, *>
-        logStep("parsePresentation:after open")
-        var closed = false
+        val warnings = linkedSetOf(
+            "Presentation shows slide text, headings, and detected bullets without original layout or images.",
+        )
+        val extract = SlideExtract()
         try {
-            val slides = mutableListOf<Map<String, Any>>()
-            val documentBlocks = mutableListOf<Map<String, Any>>()
-            val allText = StringBuilder()
-            val warnings = linkedSetOf(
-                "Presentation shows slide text, headings, and detected bullets without original layout or images.",
+            // HSLFSlideShow / XMLSlideShow build the whole deck, including every
+            // picture, before a slide cap can run. Read text records only.
+            if (normalized == "PPT") {
+                readPptText(file, extract)
+            } else {
+                readPptxText(file, extract)
+            }
+        } catch (_: OutOfMemoryError) {
+            extract.truncated = true
+            warnings.add("Opened a partial copy because this presentation ran out of memory.")
+            Log.e(TAG, "parsePresentation out of memory")
+        }
+        warnings.addAll(extract.warnings)
+        if (extract.truncated) {
+            warnings.add(
+                "Showing the first $maxSlides slides so this presentation fits in memory.",
             )
+        }
+        val texts = extract.chosenTexts()
+        logStep(
+            "parsePresentation:done slides=${texts.size} truncated=${extract.truncated}",
+        )
+        return presentationPayload(filePath, format, texts, warnings)
+    }
 
-            var index = 1
-            for (slide in slideShow.slides) {
-                if (index > maxSlides) {
-                    warnings.add(
-                        "Showing the first $maxSlides slides so this presentation fits in memory.",
-                    )
-                    break
-                }
-                val slideText = StringBuilder()
-                val shapeTexts = mutableListOf<String>()
-                val shapes = try {
-                    slide.shapes
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Skip shapes on slide $index: ${t.message}")
-                    warnings.add("Some shapes on slide $index could not be read.")
-                    emptyList()
-                }
-                for (shape in shapes) {
-                    try {
-                        if (shape is TextShape<*, *>) {
-                            val text = shape.text
-                            if (!text.isNullOrBlank()) {
-                                val trimmed = OfficeGlyphSanitizer.sanitize(text.trimEnd())
-                                shapeTexts.add(trimmed)
-                                slideText.append(trimmed).append("\n")
-                            }
-                        }
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "Skip shape on slide $index: ${t.message}")
-                        warnings.add("Some content on slide $index was skipped.")
+    /**
+     * Binary .ppt text from the PowerPoint Document stream.
+     * POIFS is read-only and closed here. The Pictures stream is never opened,
+     * so HSLFSlideShow (which has no File constructor and loads every picture)
+     * is not used.
+     */
+    private fun readPptText(file: File, extract: SlideExtract) {
+        val fs = POIFSFileSystem(file, true)
+        try {
+            val root = fs.root
+            if (!root.hasEntry("PowerPoint Document")) {
+                extract.warnings.add("This .ppt file has no readable slide text.")
+                return
+            }
+            val stream = root.createDocumentInputStream("PowerPoint Document")
+            try {
+                val capped = CappedInputStream(stream, maxPptDocumentBytes)
+                walkPptRecords(capped, extract, Long.MAX_VALUE)
+                if (capped.hitCap) extract.truncated = true
+            } finally {
+                stream.close()
+            }
+        } finally {
+            fs.close()
+        }
+    }
+
+    private fun readPptxText(file: File, extract: SlideExtract) {
+        ZipFile(file).use { zip ->
+            val names = ArrayList<String>()
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val name = entries.nextElement().name.replace('\\', '/')
+                if (pptSlideXml.containsMatchIn(name)) {
+                    names.add(name)
+                    if (names.size > 5000) {
+                        extract.truncated = true
+                        break
                     }
                 }
-                val text = slideText.toString().trimEnd()
-                slides.add(mapOf("slideNumber" to index, "text" to text))
-                if (text.isNotEmpty()) {
-                    allText.append("[Slide ").append(index).append("]\n")
-                    allText.append(text).append("\n\n")
+            }
+            names.sortBy { pptSlideXml.find(it)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
+            if (names.size > maxSlides) extract.truncated = true
+            val limit = minOf(names.size, maxSlides)
+            for (i in 0 until limit) {
+                if (extract.stop) {
+                    extract.truncated = true
+                    break
                 }
+                val entry = zip.getEntry(names[i]) ?: continue
+                extract.slides.add(StringBuilder())
+                zip.getInputStream(entry).use { raw ->
+                    val capped = CappedInputStream(raw, maxSlideXmlBytes)
+                    try {
+                        pullSlideText(capped, extract)
+                    } catch (_: OutOfMemoryError) {
+                        extract.truncated = true
+                        extract.stop = true
+                        Log.e(TAG, "Slide XML ran out of memory")
+                    } catch (t: Exception) {
+                        extract.truncated = true
+                        Log.w(TAG, "Skip slide XML ${names[i]}: ${t.message}")
+                    }
+                    if (capped.hitCap) extract.truncated = true
+                }
+            }
+        }
+    }
 
-                documentBlocks.add(
+    private fun pullSlideText(input: InputStream, extract: SlideExtract) {
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = true
+        val parser = factory.newPullParser()
+        parser.setInput(input, "UTF-8")
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT && !extract.stop) {
+            if (event == XmlPullParser.START_TAG && parser.name == "t") {
+                extract.appendCurrent(parser.nextText())
+            }
+            event = parser.next()
+        }
+    }
+
+    private fun walkPptRecords(input: InputStream, extract: SlideExtract, region: Long) {
+        val bounded = region != Long.MAX_VALUE
+        var left = if (bounded) region else Long.MAX_VALUE
+        val header = ByteArray(8)
+        while ((!bounded || left >= 8L) && !extract.stop) {
+            if (!readFully(input, header)) {
+                extract.truncated = true
+                extract.stop = true
+                return
+            }
+            if (bounded) left -= 8
+            val info = u16le(header, 0)
+            val type = u16le(header, 2)
+            val length = u32le(header, 4)
+            if (bounded && length > left) {
+                extract.truncated = true
+                extract.stop = true
+                return
+            }
+            val container = (info and 0xF) == 0xF
+            if (container) {
+                if (!extract.paging &&
+                    type == RT_SLIDE &&
+                    extract.slideDepth == 0 &&
+                    extract.slides.size >= maxSlides
+                ) {
+                    extract.truncated = true
+                    extract.stop = true
+                    return
+                }
+                extract.onContainer(type, true)
+                if (!extract.stop) {
+                    walkPptRecords(input, extract, length)
+                }
+                extract.onContainer(type, false)
+            } else if (type == RT_TEXT_CHARS || type == RT_TEXT_BYTES) {
+                val takeCap = if (extract.paging) {
+                    maxPagedSlideChars.toLong() * 4L
+                } else {
+                    32L * 1024L
+                }
+                val take = minOf(length, takeCap)
+                val buf = ByteArray(take.toInt())
+                if (take > 0 && !readFully(input, buf)) {
+                    extract.truncated = true
+                    extract.stop = true
+                    return
+                }
+                val rest = length - take
+                if (rest > 0) {
+                    if (!extract.paging) extract.truncated = true
+                    if (!discardStream(input, rest)) {
+                        extract.stop = true
+                        return
+                    }
+                }
+                extract.appendAtom(type, buf)
+            } else {
+                if (type == RT_SLIDE_PERSIST) extract.onPersist()
+                if (length > 0 && !discardStream(input, length)) {
+                    extract.truncated = true
+                    extract.stop = true
+                    return
+                }
+            }
+            if (bounded) {
+                left -= length
+                if (left < 0L) return
+            }
+        }
+        if (bounded && left > 0L && !extract.stop) {
+            if (!discardStream(input, left)) {
+                extract.truncated = true
+                extract.stop = true
+            }
+        }
+    }
+
+    private fun readFully(input: InputStream, buf: ByteArray, len: Int = buf.size): Boolean {
+        var off = 0
+        while (off < len) {
+            val n = input.read(buf, off, len - off)
+            if (n <= 0) return false
+            off += n
+        }
+        return true
+    }
+
+    private fun discardStream(input: InputStream, bytes: Long): Boolean {
+        var left = bytes
+        val scratch = ByteArray(8192)
+        while (left > 0L) {
+            val n = input.read(scratch, 0, minOf(scratch.size.toLong(), left).toInt())
+            if (n <= 0) return false
+            left -= n
+        }
+        return true
+    }
+
+    private fun u16le(b: ByteArray, off: Int): Int {
+        return (b[off].toInt() and 0xFF) or ((b[off + 1].toInt() and 0xFF) shl 8)
+    }
+
+    private fun u32le(b: ByteArray, off: Int): Long {
+        return (b[off].toLong() and 0xFF) or
+            ((b[off + 1].toLong() and 0xFF) shl 8) or
+            ((b[off + 2].toLong() and 0xFF) shl 16) or
+            ((b[off + 3].toLong() and 0xFF) shl 24)
+    }
+
+    private fun presentationPayload(
+        filePath: String,
+        format: String,
+        slideTexts: List<String>,
+        warnings: Collection<String>,
+    ): Map<String, Any> {
+        val slides = mutableListOf<Map<String, Any>>()
+        val blocks = mutableListOf<Map<String, Any>>()
+        val allText = StringBuilder()
+        slideTexts.forEachIndexed { i, raw ->
+            val text = raw.trimEnd()
+            val number = i + 1
+            slides.add(mapOf("slideNumber" to number, "text" to text))
+            if (text.isNotEmpty() && allText.length < maxPresentationChars) {
+                if (allText.isNotEmpty()) allText.append("\n\n")
+                allText.append("[Slide ").append(number).append("]\n")
+                val room = maxPresentationChars - allText.length
+                allText.append(if (text.length > room) text.substring(0, room) else text)
+            }
+            if (blocks.size < maxDocBlocks) {
+                blocks.add(
                     mapOf(
                         "type" to "paragraph",
                         "inlines" to listOf(
                             mapOf(
                                 "type" to "text",
-                                "text" to "Slide $index",
-                                "style" to mapOf("bold" to true, "fontSize" to 16.0)
-                            )
-                        )
-                    )
+                                "text" to "Slide $number",
+                                "style" to mapOf("bold" to true, "fontSize" to 16.0),
+                            ),
+                        ),
+                    ),
                 )
-                if (shapeTexts.isEmpty() && text.isEmpty()) {
-                    documentBlocks.add(
+            }
+            for (line in text.split(Regex("\\r\\n|\\r|\\n"))) {
+                if (blocks.size >= maxDocBlocks) break
+                val trimmed = line.trimEnd()
+                if (trimmed.isBlank()) continue
+                val bullet = trimmed.startsWith("•") ||
+                    trimmed.startsWith("- ") ||
+                    trimmed.startsWith("* ") ||
+                    trimmed.startsWith("–") ||
+                    Regex("^\\d+[.)]\\s+").containsMatchIn(trimmed)
+                val cleaned = trimmed
+                    .removePrefix("•")
+                    .removePrefix("* ")
+                    .removePrefix("- ")
+                    .removePrefix("–")
+                    .replaceFirst(Regex("^\\d+[.)]\\s+"), "")
+                    .trim()
+                val block = mutableMapOf<String, Any>(
+                    "type" to "paragraph",
+                    "inlines" to listOf(
                         mapOf(
-                            "type" to "paragraph",
-                            "inlines" to listOf(
-                                mapOf(
-                                    "type" to "text",
-                                    "text" to "(slide content extracted later)",
-                                    "style" to emptyMap<String, Any>()
-                                )
-                            )
-                        )
-                    )
-                }
-                for ((shapeIndex, shapeText) in shapeTexts.withIndex()) {
-                    val lines = shapeText.split(Regex("\\r\\n|\\r|\\n"))
-                        .map { it.trimEnd() }
-                        .filter { it.isNotBlank() }
-                    for (line in lines) {
-                        val looksLikeBullet = line.startsWith("•") ||
-                            line.startsWith("- ") ||
-                            line.startsWith("* ") ||
-                            line.startsWith("–") ||
-                            Regex("^\\d+[.)]\\s+").containsMatchIn(line)
-                        val cleaned = line
-                            .removePrefix("•")
-                            .removePrefix("* ")
-                            .removePrefix("- ")
-                            .removePrefix("–")
-                            .replaceFirst(Regex("^\\d+[.)]\\s+"), "")
-                            .trim()
-                        documentBlocks.add(
-                            mapOf(
-                                "type" to "paragraph",
-                                "inlines" to listOf(
-                                    mapOf(
-                                        "type" to "text",
-                                        "text" to cleaned.ifBlank { line },
-                                        "style" to if (shapeIndex == 0 && lines.indexOf(line) == 0)
-                                            mapOf("bold" to true, "fontSize" to 14.0)
-                                        else emptyMap<String, Any>()
-                                    )
-                                ),
-                                "listLevel" to if (looksLikeBullet) 0 else null,
-                                "listKind" to if (looksLikeBullet) {
-                                    if (Regex("^\\d+[.)]").containsMatchIn(line)) "decimal" else "bullet"
-                                } else null
-                            ).filterValues { it != null } as Map<String, Any>
-                        )
-                    }
-                }
-                documentBlocks.add(
-                    mapOf(
-                        "type" to "spacer",
-                        "height" to 20.0,
-                        "isPageBreak" to true
-                    )
+                            "type" to "text",
+                            "text" to cleaned.ifBlank { trimmed },
+                            "style" to emptyMap<String, Any>(),
+                        ),
+                    ),
                 )
-                index++
-            }
-
-            var plainText = OfficeGlyphSanitizer.sanitize(allText.toString().trim())
-            var bulkText = ""
-            if (plainText.isBlank()) {
-                // Drop the slideshow model before a second parse so both copies
-                // are never on the heap together.
-                closed = true
-                slideShow.close()
-                try {
-                    bulkText = extractPresentationPlainText(filePath, normalized)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Bulk presentation extractor failed: ${t.message}")
+                if (bullet) {
+                    block["listLevel"] = 0
+                    block["listKind"] =
+                        if (Regex("^\\d+[.)]").containsMatchIn(trimmed)) "decimal" else "bullet"
                 }
+                blocks.add(block)
             }
-            if (plainText.isBlank() && bulkText.isNotBlank()) {
-                plainText = OfficeGlyphSanitizer.sanitize(bulkText.trim())
-                warnings.add("Used bulk text extraction because per-shape parsing returned little content.")
-                if (documentBlocks.none { block ->
-                        ((block["inlines"] as? List<*>)?.any { inline ->
-                            (inline as? Map<*, *>)?.get("text")?.toString()?.isNotBlank() == true &&
-                                inline["text"] != "Slide 1" &&
-                                !(inline["text"] as String).startsWith("Slide ")
-                        } == true)
-                    }) {
-                    documentBlocks.clear()
-                    for (para in plainText.split(Regex("\\n\\s*\\n+|\\n"))) {
-                        val line = para.trim()
-                        if (line.isEmpty()) continue
-                        documentBlocks.add(
-                            mapOf(
-                                "type" to "paragraph",
-                                "inlines" to listOf(
-                                    mapOf(
-                                        "type" to "text",
-                                        "text" to line,
-                                        "style" to emptyMap<String, Any>()
-                                    )
-                                )
-                            )
-                        )
+            if (blocks.size < maxDocBlocks) {
+                blocks.add(mapOf("type" to "spacer", "height" to 20.0, "isPageBreak" to true))
+            }
+        }
+        val plain = OfficeGlyphSanitizer.sanitize(allText.toString().trim())
+        val wordCount = plain.split(Regex("\\s+")).count { it.isNotBlank() }
+        val lineCount = plain.split(Regex("\\r\\n|\\r|\\n")).count { it.isNotBlank() }.coerceAtLeast(1)
+        Log.w(TAG, "Presentation parse OK format=$format slides=${slides.size} chars=${plain.length}")
+        return mapOf(
+            "textContent" to plain,
+            "plainTextContent" to plain,
+            "slides" to slides,
+            "slideCount" to slides.size.coerceAtLeast(if (plain.isNotEmpty()) 1 else 0),
+            "documentBlocks" to blocks,
+            "parseWarnings" to warnings.toList(),
+            "fidelityLevel" to if (plain.isNotEmpty()) "partial" else "plainText",
+            "wordCount" to wordCount,
+            "lineCount" to lineCount,
+            "format" to format,
+            "filePath" to filePath,
+        )
+    }
+
+    private inner class SlideExtract {
+        val slides = mutableListOf<StringBuilder>()
+        val outline = mutableListOf<StringBuilder>()
+        val warnings = linkedSetOf<String>()
+        var truncated = false
+        var stop = false
+        var slideDepth = 0
+        var outlineDepth = 0
+        var paging = false
+        var pageTarget = 0
+        var slideOrdinal = 0
+        var outlineOrdinal = 0
+        var captureSlide = false
+        var captureOutline = false
+        val pagedSlide = StringBuilder()
+        val pagedOutline = StringBuilder()
+        private var totalChars = 0
+
+        fun onContainer(type: Int, start: Boolean) {
+            if (type == RT_SLIDE) {
+                if (start) {
+                    slideDepth++
+                    if (slideDepth == 1) {
+                        if (paging) {
+                            captureSlide = slideOrdinal == pageTarget
+                            slideOrdinal++
+                        } else {
+                            slides.add(StringBuilder())
+                        }
                     }
+                } else if (slideDepth > 0) {
+                    slideDepth--
+                    if (paging && slideDepth == 0) captureSlide = false
                 }
-                if (slides.all { ((it["text"] as? String).orEmpty()).isBlank() }) {
-                    slides.clear()
-                    slides.add(mapOf("slideNumber" to 1, "text" to plainText))
-                }
+            } else if (type == RT_SLIDE_LIST) {
+                if (start) outlineDepth++ else if (outlineDepth > 0) outlineDepth--
             }
+        }
 
-            val wordCount = plainText.split(Regex("\\s+")).count { it.isNotBlank() }
-            val lineCount = plainText.split(Regex("\\r\\n|\\r|\\n")).count { it.isNotBlank() }.coerceAtLeast(1)
+        fun onPersist() {
+            if (outlineDepth == 0 || slideDepth != 0) return
+            if (paging) {
+                captureOutline = outlineOrdinal == pageTarget
+                outlineOrdinal++
+                return
+            }
+            if (outline.size >= maxSlides) {
+                truncated = true
+                stop = true
+                return
+            }
+            outline.add(StringBuilder())
+        }
 
-            Log.w(
-                TAG,
-                "Presentation parse OK format=$format slides=${slides.size} chars=${plainText.length}",
+        fun appendAtom(type: Int, bytes: ByteArray) {
+            if (stop || bytes.isEmpty()) return
+            val raw = if (type == RT_TEXT_CHARS) {
+                String(bytes, Charsets.UTF_16LE)
+            } else {
+                String(bytes, Charset.forName("windows-1252"))
+            }
+            if (paging) {
+                val paged = when {
+                    slideDepth > 0 && captureSlide -> pagedSlide
+                    slideDepth == 0 && outlineDepth > 0 && captureOutline -> pagedOutline
+                    else -> return
+                }
+                appendPaged(paged, raw)
+                return
+            }
+            val target = when {
+                slideDepth > 0 && slides.isNotEmpty() -> slides.last()
+                outlineDepth > 0 -> {
+                    if (outline.isEmpty()) outline.add(StringBuilder())
+                    outline.last()
+                }
+                else -> return
+            }
+            appendTo(target, raw)
+        }
+
+        fun appendCurrent(raw: String?) {
+            if (stop || slides.isEmpty()) return
+            appendTo(slides.last(), raw ?: return)
+        }
+
+        fun appendPaged(target: StringBuilder, raw: String) {
+            val cleaned = OfficeGlyphSanitizer.sanitize(
+                raw.replace('\u0000', ' ').trim(),
             )
+            if (cleaned.isEmpty() || target.length >= maxPagedSlideChars) return
+            val room = maxPagedSlideChars - target.length
+            val piece = if (cleaned.length > room) cleaned.substring(0, room) else cleaned
+            if (target.isNotEmpty()) target.append('\n')
+            target.append(piece)
+        }
 
-            return mapOf(
-                "textContent" to plainText,
-                "plainTextContent" to plainText,
-                "slides" to slides,
-                "slideCount" to slides.size.coerceAtLeast(if (plainText.isNotEmpty()) 1 else 0),
-                "documentBlocks" to documentBlocks,
-                "parseWarnings" to warnings.toList(),
-                "fidelityLevel" to if (plainText.isNotEmpty()) "partial" else "plainText",
-                "wordCount" to wordCount,
-                "lineCount" to lineCount,
-                "format" to format,
-                "filePath" to filePath
+        private fun appendTo(target: StringBuilder, raw: String) {
+            val cleaned = OfficeGlyphSanitizer.sanitize(
+                raw.replace('\u0000', ' ').trim(),
             )
+            if (cleaned.isEmpty()) return
+            if (target.length >= maxSlideChars) {
+                truncated = true
+                return
+            }
+            val room = minOf(maxSlideChars - target.length, maxPresentationChars - totalChars)
+            if (room <= 0) {
+                truncated = true
+                if (totalChars >= maxPresentationChars) stop = true
+                return
+            }
+            val piece = if (cleaned.length > room) cleaned.substring(0, room) else cleaned
+            if (target.isNotEmpty()) target.append('\n')
+            target.append(piece)
+            totalChars += piece.length
+            if (piece.length < cleaned.length) truncated = true
+            if (totalChars >= maxPresentationChars) stop = true
+        }
+
+        fun chosenTexts(): List<String> {
+            if (slides.isNotEmpty()) return slides.map { it.toString().trimEnd() }
+            return outline.map { it.toString().trimEnd() }.filter { it.isNotBlank() }
+        }
+    }
+
+    companion object {
+        private const val RT_SLIDE = 1006
+        private const val RT_SLIDE_PERSIST = 1011
+        private const val RT_TEXT_CHARS = 4000
+        private const val RT_TEXT_BYTES = 4008
+        private const val RT_SLIDE_LIST = 4080
+    }
+
+    private fun readPptSlidePage(file: File, index: Int): Map<String, Any> {
+        val extract = SlideExtract()
+        extract.paging = true
+        extract.pageTarget = index.coerceAtLeast(0)
+        val fs = POIFSFileSystem(file, true)
+        try {
+            val root = fs.root
+            if (!root.hasEntry("PowerPoint Document")) {
+                return mapOf("index" to 0, "slideCount" to 0, "text" to "")
+            }
+            val entry = root.getEntry("PowerPoint Document")
+            if (entry !is DocumentEntry) {
+                return mapOf("index" to 0, "slideCount" to 0, "text" to "")
+            }
+            val stream = root.createDocumentInputStream("PowerPoint Document")
+            try {
+                val declared = entry.size.toLong()
+                val region = if (declared > 0L) declared else Long.MAX_VALUE
+                walkPptRecords(stream, extract, region)
+            } finally {
+                stream.close()
+            }
         } finally {
-            if (!closed) {
-                slideShow.close()
+            fs.close()
+        }
+        val count = if (extract.slideOrdinal > 0) extract.slideOrdinal else extract.outlineOrdinal
+        val text = if (extract.slideOrdinal > 0) {
+            extract.pagedSlide.toString().trimEnd()
+        } else {
+            extract.pagedOutline.toString().trimEnd()
+        }
+        val safe = if (count <= 0) 0 else index.coerceIn(0, count - 1)
+        logStep("readPptSlidePage index=$safe count=$count chars=${if (safe == index.coerceAtLeast(0)) text.length else 0}")
+        return mapOf(
+            "index" to safe,
+            "slideCount" to count,
+            "text" to if (count > 0 && index.coerceAtLeast(0) == safe) text else "",
+        )
+    }
+
+    private fun readPptxSlidePage(
+        file: File,
+        index: Int,
+        mediaDir: File,
+        packageFile: File,
+    ): Map<String, Any> {
+        ZipFile(file).use { zip ->
+            val names = ZipNameIndex(zip)
+            val slides = names.originals.filter { pptSlideXml.containsMatchIn(it) }
+                .sortedBy { pptSlideXml.find(it)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
+            if (slides.isEmpty()) {
+                logStep("readPptxSlidePage no slides")
+                return slidePageResult(0, 0, false, emptyList())
+            }
+            val safe = index.coerceIn(0, slides.lastIndex)
+            return try {
+                packageOneSlide(zip, names, slides, safe, mediaDir, packageFile)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Slide ${safe + 1} could not be packaged", t)
+                clearMediaDir(mediaDir)
+                packageFile.delete()
+                slidePageResult(
+                    slides.size,
+                    safe,
+                    true,
+                    emptyList(),
+                    t.message ?: "package failed",
+                )
             }
         }
     }
 
-    /** Text-only fallback. Opens from a file so the zip/OLE container is not copied into a byte[]. */
-    private fun extractPresentationPlainText(filePath: String, format: String): String {
-        val file = File(filePath)
-        return when (format.uppercase()) {
-            "PPT" -> {
-                val clazz = Class.forName("org.apache.poi.hslf.extractor.PowerPointExtractor")
-                val fs = POIFSFileSystem(file)
-                try {
-                    val show = HSLFSlideShow(fs)
-                    val extractor = clazz.getConstructor(
-                        Class.forName("org.apache.poi.hslf.usermodel.HSLFSlideShow"),
-                    ).newInstance(show)
-                    try {
-                        (clazz.getMethod("getText").invoke(extractor) as? String).orEmpty()
-                    } finally {
-                        try {
-                            clazz.getMethod("close").invoke(extractor)
-                        } catch (_: Throwable) {
-                        }
+    private fun packageOneSlide(
+        zip: ZipFile,
+        names: ZipNameIndex,
+        slides: List<String>,
+        safe: Int,
+        mediaDir: File,
+        packageFile: File,
+    ): Map<String, Any> {
+        // One slide only. Higher than the 768 KB text-extract cap so a dense
+        // slide still draws. The bytes are the current slide package, then discarded.
+        val slideCap = 8L * 1024 * 1024
+        val partCap = 4L * 1024 * 1024
+        val slideName = slides[safe]
+        val slideBytes = readZipCapped(zip, names, slideName, slideCap)
+        if (slideBytes == null) {
+            val reason = "slide xml missing or over $slideCap bytes"
+            Log.w(TAG, "readPptxSlidePage slide ${safe + 1} $reason")
+            clearMediaDir(mediaDir)
+            return slidePageResult(slides.size, safe, true, emptyList(), reason)
+        }
+        clearMediaDir(mediaDir)
+        packageFile.parentFile?.mkdirs()
+        if (packageFile.exists()) packageFile.delete()
+
+        val images = ArrayList<Pair<String, String>>()
+        val slideRelsName = relsPathFor(slideName)
+        val slideRels = readZipCapped(zip, names, slideRelsName, partCap)
+        val slideSpecial = harvestRels(slideRels, slideName, images)
+        val layoutName = slideSpecial["layout"]
+        val layoutBytes = layoutName?.let { readZipCapped(zip, names, it, partCap) }
+        val layoutRelsName = layoutName?.let { relsPathFor(it) }
+        val layoutRels = layoutRelsName?.let { readZipCapped(zip, names, it, partCap) }
+        val layoutSpecial = harvestRels(layoutRels, layoutName ?: slideName, images)
+        val masterName = layoutSpecial["master"]
+        val masterBytes = masterName?.let { readZipCapped(zip, names, it, partCap) }
+        val masterRelsName = masterName?.let { relsPathFor(it) }
+        val masterRels = masterRelsName?.let { readZipCapped(zip, names, it, partCap) }
+        val masterSpecial = harvestRels(masterRels, masterName ?: slideName, images)
+        val themeName = masterSpecial["theme"]
+        val themeBytes = themeName?.let { readZipCapped(zip, names, it, partCap) }
+        val themeRelsName = themeName?.let { relsPathFor(it) }
+        val themeRels = themeRelsName?.let { readZipCapped(zip, names, it, partCap) }
+        harvestRels(themeRels, themeName ?: slideName, images)
+        if (layoutName != null && layoutBytes == null) {
+            Log.i(TAG, "Slide layout left out of package: $layoutName")
+        }
+        if (masterName != null && masterBytes == null) {
+            Log.i(TAG, "Slide master left out of package: $masterName")
+        }
+        if (themeName != null && themeBytes == null) {
+            Log.i(TAG, "Slide theme left out of package: $themeName")
+        }
+
+        val media = copySlidePictures(zip, names, images, mediaDir)
+        // sldSz is a short tag. The rest of a huge presentation.xml (every
+        // slide id, default text styles) stays out when it exceeds partCap.
+        val rawPresentation = readZipCapped(zip, names, "ppt/presentation.xml", partCap)
+        val slideSize = slideSizeFrom(rawPresentation, zip, names)
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(packageFile))).use { out ->
+            fun put(name: String, bytes: ByteArray) {
+                out.putNextEntry(ZipEntry(name))
+                out.write(bytes)
+                out.closeEntry()
+            }
+            put("ppt/presentation.xml", presentationWithSize(rawPresentation, slideSize))
+            put(
+                "docProps/app.xml",
+                readZipCapped(zip, names, "docProps/app.xml", 64L * 1024) ?: appStub(),
+            )
+            val table = readZipCapped(zip, names, "ppt/tableStyles.xml", partCap)
+            if (table != null) put("ppt/tableStyles.xml", table)
+            put(slideName, slideBytes)
+            if (slideRels != null) put(slideRelsName, slideRels)
+            if (layoutName != null && layoutBytes != null) put(layoutName, layoutBytes)
+            if (layoutRelsName != null && layoutRels != null) put(layoutRelsName, layoutRels)
+            if (masterName != null && masterBytes != null) put(masterName, masterBytes)
+            if (masterRelsName != null && masterRels != null) put(masterRelsName, masterRels)
+            if (themeName != null && themeBytes != null) put(themeName, themeBytes)
+            if (themeRelsName != null && themeRels != null) put(themeRelsName, themeRels)
+            val contentParts = ArrayList<Pair<String, String>>()
+            contentParts.add(
+                slideName to
+                    "application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+            )
+            if (layoutName != null && layoutBytes != null) {
+                contentParts.add(
+                    layoutName to
+                        "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml",
+                )
+            }
+            if (masterName != null && masterBytes != null) {
+                contentParts.add(
+                    masterName to
+                        "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml",
+                )
+            }
+            if (themeName != null && themeBytes != null) {
+                contentParts.add(
+                    themeName to
+                        "application/vnd.openxmlformats-officedocument.theme+xml",
+                )
+            }
+            contentParts.add(
+                "ppt/presentation.xml" to
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+            )
+            put("[Content_Types].xml", contentTypesFor(contentParts))
+        }
+        logStep(
+            "readPptxSlidePage slide ${safe + 1}/${slides.size} " +
+                "xml=${slideBytes.size} pictures=${media.size} " +
+                "sldSz cx=${slideSize.cx} cy=${slideSize.cy} type=${slideSize.type}",
+        )
+        return slidePageResult(slides.size, safe, false, media)
+    }
+
+    private fun slidePageResult(
+        count: Int,
+        index: Int,
+        undrawable: Boolean,
+        media: List<Map<String, String>>,
+        reason: String = "",
+    ): Map<String, Any> {
+        val result = mutableMapOf<String, Any>(
+            "slideCount" to count,
+            "index" to index,
+            "undrawable" to undrawable,
+            "media" to media,
+        )
+        if (reason.isNotEmpty()) result["reason"] = reason
+        return result
+    }
+
+    private fun copySlidePictures(
+        zip: ZipFile,
+        names: ZipNameIndex,
+        images: List<Pair<String, String>>,
+        mediaDir: File,
+    ): List<Map<String, String>> {
+        if (!mediaDir.isDirectory && !mediaDir.mkdirs()) return emptyList()
+        val copied = HashMap<String, String>()
+        val media = ArrayList<Map<String, String>>()
+        var used = 0L
+        for ((jsKey, resolved) in images) {
+            if (resolved.endsWith(".xml", ignoreCase = true)) continue
+            if (isVideoPart(resolved) || isVideoPart(jsKey)) {
+                Log.i(TAG, "Slide video placeholder, not loaded: $resolved")
+                continue
+            }
+            val existing = copied[resolved]
+            if (existing != null) {
+                media.add(mapOf("zipPath" to jsKey, "file" to existing))
+                continue
+            }
+            if (used >= maxSlideMediaBytes) {
+                Log.i(TAG, "Slide picture placeholder, media budget full: $resolved")
+                continue
+            }
+            val raw = names.lookup(resolved) ?: continue
+            val entry = zip.getEntry(raw) ?: continue
+            val room = maxSlideMediaBytes - used
+            val cap = minOf(maxOnePictureBytes, room)
+            val declared = entry.size
+            if (declared > cap) {
+                Log.i(TAG, "Slide picture placeholder over $cap bytes: $resolved")
+                continue
+            }
+            val ext = safePictureExt(resolved)
+            val fileName = "m${copied.size}.$ext"
+            val dest = File(mediaDir, fileName)
+            val written = try {
+                zip.getInputStream(entry).use { copyCapped(it, dest, cap) }
+            } catch (_: OutOfMemoryError) {
+                dest.delete()
+                -1L
+            }
+            if (written < 0L) {
+                Log.i(TAG, "Slide picture placeholder, copy stopped: $resolved")
+                continue
+            }
+            used += written
+            copied[resolved] = fileName
+            media.add(mapOf("zipPath" to jsKey, "file" to fileName))
+            if (jsKey != resolved) {
+                media.add(mapOf("zipPath" to resolved, "file" to fileName))
+            }
+        }
+        return media
+    }
+
+    private fun copyCapped(input: InputStream, dest: File, cap: Long): Long {
+        var out: FileOutputStream? = null
+        return try {
+            out = FileOutputStream(dest)
+            val stream = out ?: return -1L
+            val buf = ByteArray(8192)
+            var total = 0L
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                if (total + n > cap) {
+                    stream.close()
+                    out = null
+                    dest.delete()
+                    return -1L
+                }
+                stream.write(buf, 0, n)
+                total += n
+            }
+            total
+        } catch (_: OutOfMemoryError) {
+            try {
+                out?.close()
+            } catch (_: Throwable) {
+            }
+            out = null
+            dest.delete()
+            -1L
+        } catch (t: Exception) {
+            Log.w(TAG, "Skip picture ${dest.name}: ${t.message}")
+            try {
+                out?.close()
+            } catch (_: Throwable) {
+            }
+            out = null
+            dest.delete()
+            -1L
+        } finally {
+            try {
+                out?.close()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun readZipCapped(
+        zip: ZipFile,
+        names: ZipNameIndex,
+        logical: String,
+        cap: Long,
+    ): ByteArray? {
+        val raw = names.lookup(logical) ?: return null
+        val entry = zip.getEntry(raw) ?: return null
+        if (entry.size > cap) return null
+        zip.getInputStream(entry).use { input ->
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            var total = 0L
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > cap) return null
+                out.write(buf, 0, n)
+            }
+            return out.toByteArray()
+        }
+    }
+
+    private fun harvestRels(
+        rels: ByteArray?,
+        basePart: String,
+        images: MutableList<Pair<String, String>>,
+    ): Map<String, String> {
+        val specials = HashMap<String, String>()
+        if (rels == null || rels.isEmpty()) return specials
+        for (rel in parseRels(rels)) {
+            if (rel.external) continue
+            val resolved = resolveZipPath(basePart, rel.target) ?: continue
+            when (relKind(rel.type)) {
+                "image" -> images.add(jsZipKey(rel.target) to resolved)
+                "layout", "master", "theme" ->
+                    if (!specials.containsKey(relKind(rel.type))) {
+                        specials[relKind(rel.type)] = resolved
                     }
-                } finally {
-                    try {
-                        fs.close()
-                    } catch (_: Exception) {
-                    }
+                else -> Unit
+            }
+        }
+        return specials
+    }
+
+    private fun relKind(type: String): String {
+        val t = type.lowercase()
+        return when {
+            t.endsWith("/slidelayout") -> "layout"
+            t.endsWith("/slidemaster") -> "master"
+            t.endsWith("/theme") -> "theme"
+            t.endsWith("/image") || t.endsWith("/hdphoto") -> "image"
+            else -> "skip"
+        }
+    }
+
+    private data class SlideRel(
+        val type: String,
+        val target: String,
+        val external: Boolean,
+    )
+
+    private fun parseRels(bytes: ByteArray): List<SlideRel> {
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        parser.setInput(bytes.inputStream(), "UTF-8")
+        val out = ArrayList<SlideRel>()
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.START_TAG && parser.name.endsWith("Relationship")) {
+                val type = parser.getAttributeValue(null, "Type").orEmpty()
+                val target = parser.getAttributeValue(null, "Target").orEmpty()
+                val mode = parser.getAttributeValue(null, "TargetMode").orEmpty()
+                if (target.isNotEmpty() && !target.contains(':')) {
+                    out.add(SlideRel(type, target, mode.equals("External", ignoreCase = true)))
                 }
             }
-            else -> {
-                val pkg = OPCPackage.open(file)
-                try {
-                    val show = XMLSlideShow(pkg)
-                    try {
-                        val clazz = Class.forName("org.apache.poi.xslf.extractor.XSLFPowerPointExtractor")
-                        val extractor = clazz.getConstructor(
-                            Class.forName("org.apache.poi.xslf.usermodel.XMLSlideShow"),
-                        ).newInstance(show)
-                        try {
-                            (clazz.getMethod("getText").invoke(extractor) as? String).orEmpty()
-                        } finally {
-                            try {
-                                clazz.getMethod("close").invoke(extractor)
-                            } catch (_: Throwable) {
-                            }
-                        }
-                    } finally {
-                        show.close()
-                    }
-                } finally {
-                    try {
-                        pkg.close()
-                    } catch (_: Exception) {
-                    }
+            event = parser.next()
+        }
+        return out
+    }
+
+    private fun resolveZipPath(basePart: String, target: String): String? {
+        val clean = target.replace('\\', '/').trim()
+        if (clean.isEmpty() || clean.contains(':') || clean.startsWith("//")) return null
+        if (clean.startsWith("/")) {
+            val absolute = clean.trimStart('/')
+            return if (absolute.contains("..")) null else absolute
+        }
+        val baseDir = basePart.substringBeforeLast('/', "")
+        val stack = ArrayList<String>()
+        if (baseDir.isNotEmpty()) {
+            for (seg in baseDir.split('/')) {
+                if (seg.isNotEmpty() && seg != ".") stack.add(seg)
+            }
+        }
+        for (seg in clean.split('/')) {
+            when (seg) {
+                "", "." -> Unit
+                ".." -> if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex)
+                else -> stack.add(seg)
+            }
+        }
+        return stack.joinToString("/")
+    }
+
+    /**
+     * Path pptxjs looks up after normalizing a relationship target.
+     * Absolute targets (`/ppt/media/...`) and `../media/...` both become
+     * `ppt/media/...`, which is also the name stored in the one-slide package.
+     */
+    private fun jsZipKey(target: String): String {
+        var t = target.replace('\\', '/').trim()
+        if (t.startsWith("/")) t = t.removePrefix("/")
+        val dot = t.indexOf("../")
+        if (dot >= 0) {
+            t = t.substring(0, dot) + "ppt/" + t.substring(dot + 3)
+        }
+        val stack = ArrayList<String>()
+        for (seg in t.split('/')) {
+            when (seg) {
+                "", "." -> Unit
+                ".." -> if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex)
+                else -> stack.add(seg)
+            }
+        }
+        return stack.joinToString("/")
+    }
+
+    private fun relsPathFor(part: String): String {
+        val slash = part.lastIndexOf('/')
+        val dir = if (slash < 0) "_rels" else part.substring(0, slash) + "/_rels"
+        val file = if (slash < 0) part else part.substring(slash + 1)
+        return "$dir/$file.rels"
+    }
+
+    private fun safePictureExt(name: String): String {
+        val ext = name.substringAfterLast('.', "bin")
+            .lowercase()
+            .filter { it.isLetterOrDigit() }
+            .take(4)
+        return if (ext.isEmpty()) "bin" else ext
+    }
+
+    private fun contentTypesFor(parts: List<Pair<String, String>>): ByteArray {
+        val body = StringBuilder()
+        body.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+        body.append("""<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">""")
+        body.append(
+            """<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>""",
+        )
+        body.append("""<Default Extension="xml" ContentType="application/xml"/>""")
+        for ((name, type) in parts) {
+            val part = name.removePrefix("/").replace("&", "&amp;")
+            body.append("""<Override PartName="/$part" ContentType="$type"/>""")
+        }
+        body.append("</Types>")
+        return body.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    private data class AppliedSlideSize(val cx: Long, val cy: Long, val type: String)
+
+    /** Widescreen 16:9, the size PowerPoint writes when type is omitted. */
+    private fun defaultSlideSize(): AppliedSlideSize {
+        return AppliedSlideSize(12_192_000L, 6_858_000L, "screen16x9")
+    }
+
+    private val sldSzElement = Regex(
+        """<(?:[A-Za-z_][\w.-]*:)?sldSz\b[^<>]*/>|<(?:[A-Za-z_][\w.-]*:)?sldSz\b[^<>]*>\s*</(?:[A-Za-z_][\w.-]*:)?sldSz>""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun slideSizeFrom(
+        presentation: ByteArray?,
+        zip: ZipFile,
+        names: ZipNameIndex,
+    ): AppliedSlideSize {
+        if (presentation != null) {
+            return sizeFromPresentationBytes(presentation) ?: defaultSlideSize()
+        }
+        return readSldSzEarly(zip, names) ?: defaultSlideSize()
+    }
+
+    /**
+     * Reads only until `p:sldSz` closes, or 512 KB, whichever comes first.
+     * Slide ids and default text styles after that tag are not loaded.
+     */
+    private fun readSldSzEarly(zip: ZipFile, names: ZipNameIndex): AppliedSlideSize? {
+        val raw = names.lookup("ppt/presentation.xml") ?: return null
+        val entry = zip.getEntry(raw) ?: return null
+        val cap = 512 * 1024
+        val window = ByteArrayOutputStream()
+        zip.getInputStream(entry).use { input ->
+            val buf = ByteArray(4096)
+            var total = 0
+            while (total < cap) {
+                val n = input.read(buf, 0, minOf(buf.size, cap - total))
+                if (n < 0) break
+                window.write(buf, 0, n)
+                total += n
+                val tag = sldSzTag(window.toByteArray())
+                if (tag != null) return sizeFromTag(tag)
+            }
+        }
+        return sldSzTag(window.toByteArray())?.let { sizeFromTag(it) }
+    }
+
+    private fun sizeFromPresentationBytes(bytes: ByteArray): AppliedSlideSize? {
+        val tag = sldSzTag(bytes) ?: return null
+        return sizeFromTag(tag)
+    }
+
+    private fun sldSzTag(bytes: ByteArray): String? {
+        var from = 0
+        while (from < bytes.size) {
+            val at = indexOfAscii(bytes, "sldSz", from)
+            if (at < 0) return null
+            var start = at
+            var back = 0
+            while (start > 0 && back < 24 && bytes[start - 1].toInt().and(0xFF) != '<'.code) {
+                start--
+                back++
+            }
+            val opened = start > 0 && bytes[start - 1].toInt().and(0xFF) == '<'.code
+            if (!opened) {
+                from = at + 5
+                continue
+            }
+            start--
+            var end = at
+            while (end < bytes.size && bytes[end].toInt().and(0xFF) != '>'.code) end++
+            if (end >= bytes.size) return null
+            return bytes.copyOfRange(start, end + 1).toString(Charsets.UTF_8)
+        }
+        return null
+    }
+
+    private fun indexOfAscii(bytes: ByteArray, needle: String, from: Int = 0): Int {
+        val n = needle.toByteArray(Charsets.US_ASCII)
+        if (n.isEmpty() || from < 0 || bytes.size < from + n.size) return -1
+        var i = from
+        val last = bytes.size - n.size
+        while (i <= last) {
+            var ok = true
+            for (j in n.indices) {
+                if (bytes[i + j] != n[j]) {
+                    ok = false
+                    break
                 }
             }
+            if (ok) return i
+            i++
+        }
+        return -1
+    }
+
+    private fun sizeFromTag(tag: String): AppliedSlideSize {
+        val fallback = defaultSlideSize()
+        val cx = attrLong(tag, "cx")?.takeIf { it > 0L } ?: fallback.cx
+        val cy = attrLong(tag, "cy")?.takeIf { it > 0L } ?: fallback.cy
+        return AppliedSlideSize(cx, cy, slideSizeType(cx, cy, attrString(tag, "type")))
+    }
+
+    private fun attrString(tag: String, name: String): String? {
+        val match = Regex(
+            """(?:^|[\s/])$name\s*=\s*(?:"([^"]*)"|'([^']*)')""",
+        ).find(tag) ?: return null
+        val quoted = match.groupValues[1].ifEmpty { match.groupValues[2] }
+        return quoted.trim().ifEmpty { null }
+    }
+
+    private fun attrLong(tag: String, name: String): Long? {
+        return attrString(tag, name)?.toLongOrNull()
+    }
+
+    /** OOXML omits type on many 16:9 decks. pptxjs then logs `undefined`. */
+    private fun slideSizeType(cx: Long, cy: Long, declared: String?): String {
+        val clean = declared?.trim()?.takeIf { it.matches(Regex("""[A-Za-z0-9]+""")) }
+        if (clean != null) return clean
+        if (cy <= 0L) return "screen16x9"
+        val ratio = cx.toDouble() / cy.toDouble()
+        val wide = 16.0 / 9.0
+        val standard = 4.0 / 3.0
+        return if (kotlin.math.abs(ratio - wide) <= kotlin.math.abs(ratio - standard)) {
+            "screen16x9"
+        } else {
+            "screen4x3"
+        }
+    }
+
+    private fun presentationWithSize(existing: ByteArray?, size: AppliedSlideSize): ByteArray {
+        val tag = "<p:sldSz cx=\"${size.cx}\" cy=\"${size.cy}\" type=\"${size.type}\"/>"
+        if (existing == null || existing.isEmpty()) return presentationStub(size)
+        val text = existing.toString(Charsets.UTF_8)
+        if (sldSzElement.containsMatchIn(text)) {
+            return sldSzElement.replace(text, tag).toByteArray(Charsets.UTF_8)
+        }
+        val root = Regex(
+            """<(?:[A-Za-z_][\w.-]*:)?presentation\b[^>]*>""",
+            RegexOption.IGNORE_CASE,
+        ).find(text) ?: return presentationStub(size)
+        val at = root.range.last + 1
+        return (text.substring(0, at) + tag + text.substring(at)).toByteArray(Charsets.UTF_8)
+    }
+
+    private fun presentationStub(size: AppliedSlideSize = defaultSlideSize()): ByteArray {
+        return """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+            <p:sldSz cx="${size.cx}" cy="${size.cy}" type="${size.type}"/>
+            <p:defaultTextStyle/>
+            </p:presentation>
+        """.trimIndent().toByteArray(Charsets.UTF_8)
+    }
+
+    private fun isVideoPart(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "")
+            .substringBefore('?')
+            .lowercase()
+        return ext == "mp4" || ext == "m4v" || ext == "mov" || ext == "avi" ||
+            ext == "wmv" || ext == "mpg" || ext == "mpeg" || ext == "webm" ||
+            ext == "ogv" || ext == "3gp" || ext == "mkv"
+    }
+
+    private fun appStub(): ByteArray {
+        return """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+            <AppVersion>16.0000</AppVersion>
+            </Properties>
+        """.trimIndent().toByteArray(Charsets.UTF_8)
+    }
+
+    private fun clearMediaDir(dir: File) {
+        if (!dir.exists()) {
+            dir.mkdirs()
+            return
+        }
+        dir.listFiles()?.forEach { child ->
+            if (child.isFile) child.delete()
+        }
+    }
+
+    private fun isInsideCache(activity: Activity, file: File): Boolean {
+        return try {
+            val cache = activity.cacheDir.canonicalFile
+            val target = file.canonicalFile
+            val prefix = cache.path + File.separator
+            target.path.startsWith(prefix)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private class ZipNameIndex(zip: ZipFile) {
+        val actual = HashMap<String, String>()
+        val originals = ArrayList<String>()
+
+        init {
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val raw = entries.nextElement().name.replace('\\', '/')
+                if (raw.endsWith("/")) continue
+                val key = raw.removePrefix("/")
+                if (actual.containsKey(key)) continue
+                actual[key] = raw
+                actual[key.lowercase()] = raw
+                originals.add(key)
+            }
+        }
+
+        fun lookup(logical: String): String? {
+            val key = logical.replace('\\', '/').removePrefix("/")
+            return actual[key] ?: actual[key.lowercase()]
         }
     }
 
@@ -1641,6 +2690,1146 @@ class NativeDocumentParser(private val TAG: String) {
             if (used >= maxChars || cells >= maxCells) exhausted = true
             return clipped
         }
+    }
+
+    private fun readXlsxWindow(
+        file: File,
+        sheetIndex: Int,
+        startRow: Int,
+        rowCount: Int,
+        startCol: Int,
+        colCount: Int,
+    ): Map<String, Any> {
+        ZipFile(file, StandardCharsets.UTF_8).use { zip ->
+            val workbook = workbookZipEntry(zip)
+                ?: throw IllegalStateException("This file could not be opened.")
+            val names = ArrayList<String>()
+            val paths = ArrayList<String>()
+            readWorkbookSheets(zip, workbook, names, paths)
+            if (sheetIndex !in paths.indices) {
+                return sheetWindowResult(
+                    names, sheetIndex, startRow, startCol,
+                    emptyList(), false, false, false,
+                )
+            }
+            return try {
+                val sheetStarted = System.currentTimeMillis()
+                val scan = scanXlsxSheet(
+                    zip, paths[sheetIndex], startRow, rowCount, startCol, colCount,
+                )
+                val sheetMs = System.currentTimeMillis() - sheetStarted
+                val strings = try {
+                    readNeededSharedStrings(zip, scan.needed)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "xlsx shared strings skipped: ${t.message}")
+                    if (t is Error && t !is OutOfMemoryError) throw t
+                    emptyMap()
+                }
+                val sstMs = System.currentTimeMillis() - sheetStarted - sheetMs
+                val built = buildWindowGrid(
+                    scan.originRow, rowCount, startCol, colCount, scan.maxRow, scan.maxCol,
+                ) { row, col ->
+                    val key = cellKey(row, col)
+                    scan.inline[key] ?: scan.sstAt[key]?.let { strings[it] }.orEmpty()
+                }
+                logStep(
+                    "xlsx window origin=${scan.originRow} " +
+                        "grid=${built.first.size}x${built.first.firstOrNull()?.size ?: 0} " +
+                        "strings=${scan.needed.size} sheet=${sheetMs}ms sst=${sstMs}ms",
+                )
+                sheetWindowResult(
+                    names, sheetIndex, scan.originRow, startCol,
+                    built.first,
+                    scan.hasMoreRows,
+                    scan.hasMoreCols || built.third,
+                    false,
+                )
+            } catch (t: Throwable) {
+                Log.e(TAG, "xlsx sheet window failed", t)
+                if (t is Error && t !is OutOfMemoryError) throw t
+                sheetWindowResult(
+                    names, sheetIndex, startRow, startCol,
+                    emptyList(), false, false, true,
+                )
+            }
+        }
+    }
+
+    private class XlsxScan {
+        var originRow = 0
+        var maxRow = -1
+        var maxCol = -1
+        var hasMoreRows = false
+        var hasMoreCols = false
+        var anchored = false
+        var dimStartRow = -1
+        var dimEndRow = -1
+        var dimEndCol = -1
+        val inline = HashMap<Long, String>()
+        val sstAt = HashMap<Long, Int>()
+        val needed = HashSet<Int>()
+    }
+
+    private fun scanXlsxSheet(
+        zip: ZipFile,
+        path: String,
+        startRow: Int,
+        rowCount: Int,
+        startCol: Int,
+        colCount: Int,
+    ): XlsxScan {
+        val scan = XlsxScan()
+        scan.originRow = startRow
+        if (path.isEmpty()) return scan
+        val entry = zipEntryExact(zip, path) ?: return scan
+        zip.getInputStream(entry).use { input ->
+            val parser = newPullParser(input)
+            var event = parser.eventType
+            var inSheetData = false
+            var inRow = false
+            var inCell = false
+            var inInline = false
+            var inFormula = false
+            var inValue = false
+            var inText = false
+            var skipRow = false
+            var stop = false
+            var phonetic = 0
+            var rowNumber = -1
+            var colNumber = -1
+            var nextCol = 0
+            var cellType = ""
+            val text = StringBuilder()
+            while (event != XmlPullParser.END_DOCUMENT && !stop) {
+                val name = if (
+                    event == XmlPullParser.START_TAG || event == XmlPullParser.END_TAG
+                ) {
+                    xmlLocalName(parser)
+                } else {
+                    ""
+                }
+                when (event) {
+                    XmlPullParser.START_TAG -> when (name) {
+                        "dimension" -> if (!inSheetData) {
+                            xmlAttr(parser, "ref")?.let { applyXlsxDimension(scan, it) }
+                        }
+                        "sheetData" -> {
+                            inSheetData = true
+                            if (scan.dimStartRow >= 0 &&
+                                scan.originRow + rowCount <= scan.dimStartRow
+                            ) {
+                                scan.originRow = scan.dimStartRow
+                            }
+                        }
+                        "row" -> if (inSheetData) {
+                            val declared = xmlAttr(parser, "r")?.toIntOrNull()
+                            rowNumber = if (declared != null && declared > 0) {
+                                declared - 1
+                            } else {
+                                rowNumber + 1
+                            }
+                            nextCol = 0
+                            if (!scan.anchored &&
+                                scan.inline.isEmpty() &&
+                                scan.sstAt.isEmpty() &&
+                                rowNumber >= scan.originRow + rowCount
+                            ) {
+                                scan.originRow = rowNumber
+                            }
+                            when {
+                                rowNumber >= scan.originRow + rowCount -> {
+                                    scan.hasMoreRows = true
+                                    stop = true
+                                }
+                                rowNumber < scan.originRow -> {
+                                    inRow = true
+                                    skipRow = true
+                                }
+                                else -> {
+                                    inRow = true
+                                    skipRow = false
+                                    scan.anchored = true
+                                    if (rowNumber > scan.maxRow) scan.maxRow = rowNumber
+                                }
+                            }
+                        }
+                        "c" -> if (inRow && !skipRow) {
+                            inCell = true
+                            cellType = xmlAttr(parser, "t").orEmpty()
+                            text.setLength(0)
+                            val parsed = xmlAttr(parser, "r")?.let { parseA1(it) }
+                            colNumber = parsed?.first ?: nextCol
+                            if (parsed != null) rowNumber = parsed.second
+                            nextCol = colNumber + 1
+                            if (colNumber >= startCol + colCount) {
+                                scan.hasMoreCols = true
+                            } else if (colNumber >= startCol && colNumber > scan.maxCol) {
+                                scan.maxCol = colNumber
+                            }
+                        }
+                        "is" -> if (inCell) inInline = true
+                        "f" -> if (inCell) inFormula = true
+                        "v" -> if (inCell && !inFormula) {
+                            inValue = true
+                            text.setLength(0)
+                        }
+                        "rPh", "phoneticPr" -> phonetic++
+                        "t" -> if (inInline && phonetic == 0) inText = true
+                    }
+                    XmlPullParser.TEXT -> if (phonetic == 0 && (inValue || inText)) {
+                        appendCapped(text, parser.text)
+                    }
+                    XmlPullParser.END_TAG -> when (name) {
+                        "t" -> inText = false
+                        "v" -> inValue = false
+                        "f" -> inFormula = false
+                        "is" -> inInline = false
+                        "rPh", "phoneticPr" -> if (phonetic > 0) phonetic--
+                        "c" -> {
+                            if (inCell) {
+                                commitXlsxCell(
+                                    scan, rowNumber, colNumber, cellType, text.toString(),
+                                    scan.originRow, rowCount, startCol, colCount,
+                                )
+                            }
+                            inCell = false
+                            inValue = false
+                            inText = false
+                            text.setLength(0)
+                        }
+                        "row" -> {
+                            inRow = false
+                            skipRow = false
+                        }
+                        "sheetData" -> inSheetData = false
+                    }
+                }
+                if (stop) break
+                event = parser.next()
+            }
+        }
+        if (scan.dimEndRow >= scan.originRow + rowCount) scan.hasMoreRows = true
+        if (scan.dimEndCol >= startCol + colCount) scan.hasMoreCols = true
+        if (scan.dimEndCol >= startCol) {
+            val capped = minOf(scan.dimEndCol, startCol + colCount - 1)
+            if (capped > scan.maxCol) scan.maxCol = capped
+        }
+        return scan
+    }
+
+    private fun applyXlsxDimension(scan: XlsxScan, ref: String) {
+        val parts = ref.split(':')
+        val start = parseA1(parts[0].trim()) ?: return
+        val end = if (parts.size > 1) parseA1(parts[1].trim()) ?: start else start
+        scan.dimStartRow = minOf(start.second, end.second)
+        scan.dimEndRow = maxOf(start.second, end.second)
+        scan.dimEndCol = maxOf(start.first, end.first)
+    }
+
+    private fun commitXlsxCell(
+        scan: XlsxScan,
+        row: Int,
+        col: Int,
+        cellType: String,
+        raw: String,
+        startRow: Int,
+        rowCount: Int,
+        startCol: Int,
+        colCount: Int,
+    ) {
+        if (row < startRow || row >= startRow + rowCount) return
+        if (col < startCol || col >= startCol + colCount) return
+        val key = cellKey(row, col)
+        if (cellType == "s") {
+            val index = raw.trim().toIntOrNull() ?: return
+            if (index < 0) return
+            scan.sstAt[key] = index
+            scan.needed.add(index)
+            return
+        }
+        val shown = if (cellType == "b") {
+            when (raw.trim()) {
+                "1" -> "TRUE"
+                "0" -> "FALSE"
+                else -> raw.trim()
+            }
+        } else {
+            raw.trim()
+        }
+        if (shown.isNotEmpty()) scan.inline[key] = clipWindowCell(shown)
+    }
+
+    private fun readNeededSharedStrings(zip: ZipFile, needed: Set<Int>): Map<Int, String> {
+        if (needed.isEmpty()) return emptyMap()
+        val entry = findZipEntry(zip) { name ->
+            !name.contains("/_rels/") &&
+                (name == "xl/sharedStrings.xml" || name.endsWith("/sharedStrings.xml"))
+        } ?: return emptyMap()
+        val kept = HashMap<Int, String>(needed.size)
+        zip.getInputStream(entry).use { input ->
+            SstByteReader(input, needed, kept, windowCellChars).read()
+        }
+        if (kept.size < needed.size) {
+            Log.w(TAG, "xlsx sst kept ${kept.size} of ${needed.size}")
+        }
+        return kept
+    }
+
+    /** Shared-string tag. Nested classes are illegal inside an inner class. */
+    private class SstTag(val local: String, val end: Boolean, val selfClosing: Boolean)
+
+    /**
+     * Counts shared-string items and keeps only [needed]. Unneeded items are
+     * skipped by searching for the end tag, so a million-item table is not
+     * turned into a parser tree or retained.
+     */
+    private inner class SstByteReader(
+        private val input: InputStream,
+        private val needed: Set<Int>,
+        private val kept: MutableMap<Int, String>,
+        private val maxChars: Int,
+    ) {
+        private val buf = ByteArray(1024 * 1024)
+        private var pos = 0
+        private var limit = 0
+        private var eof = false
+
+        fun read() {
+            var index = -1
+            while (kept.size < needed.size) {
+                if (!skipUntil('<'.code)) return
+                val kind = peekPlainSi()
+                if (kind == 0) {
+                    val tag = readTag() ?: continue
+                    if (tag.local != "si" || tag.end) continue
+                    index++
+                    if (tag.selfClosing) {
+                        if (index in needed) kept[index] = ""
+                        continue
+                    }
+                    if (index !in needed) {
+                        if (!skipSiEnd()) return
+                        continue
+                    }
+                    kept[index] = readSiText()
+                    continue
+                }
+                index++
+                if (kind == 2) {
+                    if (index in needed) kept[index] = ""
+                    continue
+                }
+                if (index !in needed) {
+                    if (!skipSiEnd()) return
+                } else {
+                    kept[index] = readSiText()
+                }
+            }
+        }
+
+        /** 1 = `<si>`, 2 = `<si/>`, 0 = some other tag. Advances only for 1 and 2. */
+        private fun peekPlainSi(): Int {
+            if (limit - pos < 4 && !pull()) return 0
+            if (limit - pos < 4) return 0
+            if (buf[pos] != '<'.code.toByte() ||
+                buf[pos + 1] != 's'.code.toByte() ||
+                buf[pos + 2] != 'i'.code.toByte()
+            ) {
+                return 0
+            }
+            if (buf[pos + 3] == '>'.code.toByte()) {
+                pos += 4
+                return 1
+            }
+            if (buf[pos + 3] == '/'.code.toByte()) {
+                if (limit - pos < 5 && !pull()) return 0
+                if (limit - pos >= 5 && buf[pos + 4] == '>'.code.toByte()) {
+                    pos += 5
+                    return 2
+                }
+            }
+            return 0
+        }
+
+        private fun readSiText(): String {
+            val text = StringBuilder()
+            var phonetic = 0
+            while (true) {
+                if (!skipUntil('<'.code)) break
+                val tag = readTag() ?: continue
+                if (tag.local == "si" && tag.end && phonetic == 0) break
+                if (tag.local == "rPh" || tag.local == "phoneticPr") {
+                    if (tag.end) {
+                        if (phonetic > 0) phonetic--
+                    } else if (!tag.selfClosing) {
+                        phonetic++
+                    }
+                    continue
+                }
+                if (tag.local == "t" && !tag.end && !tag.selfClosing && phonetic == 0) {
+                    appendDecoded(text, readUntil('<'.code))
+                }
+            }
+            return text.toString()
+        }
+
+        private fun skipSiEnd(): Boolean {
+            val bytes = buf
+            val lt = '<'.code.toByte()
+            val slash = '/'.code.toByte()
+            val sByte = 's'.code.toByte()
+            val iByte = 'i'.code.toByte()
+            val gt = '>'.code.toByte()
+            while (true) {
+                var p = pos
+                val lim = limit
+                while (p < lim) {
+                    if (bytes[p] == lt) {
+                        if (p + 5 > lim && !eof) {
+                            pos = p
+                            if (!pull()) return false
+                            break
+                        }
+                        if (p + 5 <= lim &&
+                            bytes[p + 1] == slash &&
+                            bytes[p + 2] == sByte &&
+                            bytes[p + 3] == iByte &&
+                            bytes[p + 4] == gt
+                        ) {
+                            pos = p + 5
+                            return true
+                        }
+                    }
+                    p++
+                }
+                if (p >= lim) {
+                    pos = lim
+                    if (!pull()) return false
+                }
+            }
+        }
+
+        private fun skipUntil(target: Int): Boolean {
+            while (true) {
+                var p = pos
+                val lim = limit
+                while (p < lim) {
+                    if ((buf[p].toInt() and 0xFF) == target) {
+                        pos = p
+                        return true
+                    }
+                    p++
+                }
+                pos = lim
+                if (!pull()) return false
+            }
+        }
+
+        private fun readUntil(target: Int): ByteArray {
+            val out = ByteArrayOutputStream()
+            var capped = false
+            while (true) {
+                if (pos >= limit && !pull()) break
+                val c = buf[pos].toInt() and 0xFF
+                if (c == target) break
+                pos++
+                if (!capped) {
+                    out.write(c)
+                    if (out.size() >= maxChars * 4) capped = true
+                }
+            }
+            return out.toByteArray()
+        }
+
+        private fun appendDecoded(into: StringBuilder, raw: ByteArray) {
+            if (raw.isEmpty() || into.length >= maxChars) return
+            var text = String(raw, StandardCharsets.UTF_8)
+            if (text.indexOf('&') >= 0) text = decodeXmlEntities(text)
+            val room = maxChars - into.length
+            if (text.length <= room) into.append(text) else into.append(text, 0, room)
+        }
+
+        private fun readTag(): SstTag? {
+            if (pos >= limit && !pull()) return null
+            if ((buf[pos].toInt() and 0xFF) != '<'.code) return null
+            pos++
+            if (pos >= limit && !pull()) return null
+            val mark = buf[pos].toInt() and 0xFF
+            if (mark == '?'.code || mark == '!'.code) {
+                if (mark == '!'.code && lookingAt("!--")) {
+                    skipUntilSequence("-->")
+                } else {
+                    skipUntil('>'.code)
+                    if (pos < limit && (buf[pos].toInt() and 0xFF) == '>'.code) pos++
+                }
+                return null
+            }
+            val end = mark == '/'.code
+            if (end) pos++
+            val name = StringBuilder()
+            while (true) {
+                if (pos >= limit && !pull()) break
+                val c = buf[pos].toInt() and 0xFF
+                if (c == '>'.code || c == '/'.code || c <= 32) break
+                name.append(c.toChar())
+                pos++
+                if (name.length > 80) break
+            }
+            var selfClosing = false
+            while (true) {
+                if (pos >= limit && !pull()) break
+                val c = buf[pos].toInt() and 0xFF
+                if (c == '>'.code) {
+                    pos++
+                    break
+                }
+                if (c == '/'.code) selfClosing = true
+                pos++
+            }
+            val raw = name.toString()
+            val colon = raw.lastIndexOf(':')
+            val local = if (colon >= 0) raw.substring(colon + 1) else raw
+            return SstTag(local, end, selfClosing)
+        }
+
+        private fun lookingAt(token: String): Boolean {
+            if (limit - pos < token.length && !pull()) return false
+            if (limit - pos < token.length) return false
+            for (i in token.indices) {
+                if ((buf[pos + i].toInt() and 0xFF) != token[i].code) return false
+            }
+            return true
+        }
+
+        private fun skipUntilSequence(token: String) {
+            val first = token[0].code
+            while (skipUntil(first)) {
+                if (lookingAt(token)) {
+                    pos += token.length
+                    return
+                }
+                pos++
+            }
+        }
+
+        private fun pull(): Boolean {
+            if (pos > 0 && pos < limit) {
+                val keep = limit - pos
+                buf.copyInto(buf, 0, pos, limit)
+                pos = 0
+                limit = keep
+            } else if (pos >= limit) {
+                pos = 0
+                limit = 0
+            }
+            if (eof || limit >= buf.size) return limit > pos
+            val n = input.read(buf, limit, buf.size - limit)
+            if (n <= 0) eof = true else limit += n
+            return limit > pos
+        }
+    }
+
+    private fun decodeXmlEntities(raw: String): String {
+        val sb = StringBuilder(raw.length)
+        var i = 0
+        while (i < raw.length) {
+            if (raw[i] != '&') {
+                sb.append(raw[i])
+                i++
+                continue
+            }
+            val semi = raw.indexOf(';', i + 1)
+            if (semi < 0 || semi - i > 12) {
+                sb.append('&')
+                i++
+                continue
+            }
+            val body = raw.substring(i + 1, semi)
+            val ch = when (body) {
+                "amp" -> '&'
+                "lt" -> '<'
+                "gt" -> '>'
+                "quot" -> '"'
+                "apos" -> '\''
+                else -> {
+                    val code = when {
+                        body.startsWith("#x") || body.startsWith("#X") ->
+                            body.substring(2).toIntOrNull(16)
+                        body.startsWith("#") -> body.substring(1).toIntOrNull()
+                        else -> null
+                    }
+                    if (code != null && code in 0..0xFFFF) code.toChar() else null
+                }
+            }
+            if (ch == null) {
+                sb.append('&')
+                i++
+            } else {
+                sb.append(ch)
+                i = semi + 1
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun readWorkbookSheets(
+        zip: ZipFile,
+        workbook: ZipEntry,
+        names: MutableList<String>,
+        paths: MutableList<String>,
+    ) {
+        val bookPath = workbook.name.replace('\\', '/')
+        val rels = HashMap<String, String>()
+        val relsEntry = zip.getEntry(workbookRelsPath(bookPath))
+        if (relsEntry != null) {
+            zip.getInputStream(relsEntry).use { input ->
+                val parser = newPullParser(input)
+                var event = parser.eventType
+                while (event != XmlPullParser.END_DOCUMENT) {
+                    if (event == XmlPullParser.START_TAG && xmlLocalName(parser) == "Relationship") {
+                        val id = xmlAttr(parser, "Id")
+                        val target = xmlAttr(parser, "Target")
+                        val external = xmlAttr(parser, "TargetMode")
+                            ?.equals("External", ignoreCase = true) == true
+                        if (!id.isNullOrEmpty() && !target.isNullOrEmpty() && !external) {
+                            rels[id] = resolveZipTarget(bookPath, target)
+                        }
+                    }
+                    event = parser.next()
+                }
+            }
+        }
+        zip.getInputStream(workbook).use { input ->
+            val parser = newPullParser(input)
+            var event = parser.eventType
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.START_TAG && xmlLocalName(parser) == "sheet") {
+                    val rawName = xmlAttr(parser, "name")?.trim().orEmpty()
+                    val name = rawName.take(128).ifBlank { "Sheet ${names.size + 1}" }
+                    val id = xmlAttr(parser, "id")
+                    names.add(name)
+                    paths.add(if (id.isNullOrEmpty()) "" else rels[id].orEmpty())
+                }
+                event = parser.next()
+            }
+        }
+    }
+
+    private fun readXlsWindow(
+        file: File,
+        sheetIndex: Int,
+        startRow: Int,
+        rowCount: Int,
+        startCol: Int,
+        colCount: Int,
+    ): Map<String, Any> {
+        val fs = POIFSFileSystem(file, true)
+        try {
+            val accum = XlsWindowAccum(sheetIndex, startRow, rowCount, startCol, colCount)
+            walkXls(
+                fs,
+                onSst = { input ->
+                    readSparseSst(input, emptySet())
+                    false
+                },
+                onRecord = { record -> consumeXlsRecord(record, accum) },
+            )
+            val strings = if (accum.needed.isEmpty()) {
+                emptyMap()
+            } else {
+                try {
+                    loadSparseSst(fs, accum.needed)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "xls sparse sst failed: ${t.message}")
+                    if (t is Error && t !is OutOfMemoryError) throw t
+                    emptyMap()
+                }
+            }
+            val built = buildWindowGrid(
+                startRow, rowCount, startCol, colCount, accum.maxRow, accum.maxCol,
+            ) { row, col ->
+                val key = cellKey(row, col)
+                accum.inline[key] ?: accum.sstAt[key]?.let { strings[it] }.orEmpty()
+            }
+            return sheetWindowResult(
+                accum.names, sheetIndex, startRow, startCol,
+                built.first, built.second, built.third, false,
+            )
+        } finally {
+            try {
+                fs.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private class XlsWindowAccum(
+        val target: Int,
+        val startRow: Int,
+        val rowCount: Int,
+        val startCol: Int,
+        val colCount: Int,
+    ) {
+        val names = ArrayList<String>()
+        var sheetOrdinal = -1
+        var maxRow = -1
+        var maxCol = -1
+        var outputNextString = false
+        var pendingRow = -1
+        var pendingCol = -1
+        val needed = HashSet<Int>()
+        val inline = HashMap<Long, String>()
+        val sstAt = HashMap<Long, Int>()
+        val onTarget: Boolean get() = sheetOrdinal == target
+    }
+
+    private fun consumeXlsRecord(
+        record: org.apache.poi.hssf.record.Record,
+        accum: XlsWindowAccum,
+    ) {
+        when (record.sid.toInt()) {
+            BoundSheetRecord.sid.toInt() -> {
+                val raw = (record as BoundSheetRecord).sheetname?.trim().orEmpty()
+                accum.names.add(raw.take(128).ifBlank { "Sheet ${accum.names.size + 1}" })
+            }
+            BOFRecord.sid.toInt() -> {
+                val type = (record as BOFRecord).type.toInt()
+                if (type == BOFRecord.TYPE_WORKSHEET.toInt() ||
+                    type == BOFRecord.TYPE_CHART.toInt() ||
+                    type == BOFRecord.TYPE_EXCEL_4_MACRO.toInt()
+                ) {
+                    accum.outputNextString = false
+                    accum.sheetOrdinal += 1
+                }
+            }
+            BlankRecord.sid.toInt() -> {
+                val cell = record as BlankRecord
+                noteXlsCell(accum, cell.row, cell.column.toInt(), null, null)
+            }
+            MulBlankRecord.sid.toInt() -> {
+                val cell = record as MulBlankRecord
+                var col = cell.firstColumn.toInt()
+                val last = cell.lastColumn.toInt()
+                while (col <= last) {
+                    noteXlsCell(accum, cell.row, col, null, null)
+                    col++
+                }
+            }
+            BoolErrRecord.sid.toInt() -> {
+                val cell = record as BoolErrRecord
+                val text = if (cell.isBoolean) {
+                    if (cell.booleanValue) "TRUE" else "FALSE"
+                } else {
+                    "ERROR"
+                }
+                noteXlsCell(accum, cell.row, cell.column.toInt(), text, null)
+            }
+            FormulaRecord.sid.toInt() -> {
+                val cell = record as FormulaRecord
+                if (java.lang.Double.isNaN(cell.value)) {
+                    accum.outputNextString = true
+                    accum.pendingRow = cell.row
+                    accum.pendingCol = cell.column.toInt()
+                } else {
+                    accum.outputNextString = false
+                    noteXlsCell(
+                        accum, cell.row, cell.column.toInt(), plainNumber(cell.value), null,
+                    )
+                }
+            }
+            StringRecord.sid.toInt() -> {
+                if (accum.outputNextString) {
+                    noteXlsCell(
+                        accum,
+                        accum.pendingRow,
+                        accum.pendingCol,
+                        (record as StringRecord).string,
+                        null,
+                    )
+                    accum.outputNextString = false
+                }
+            }
+            LabelRecord.sid.toInt() -> {
+                val cell = record as LabelRecord
+                noteXlsCell(accum, cell.row, cell.column.toInt(), cell.value, null)
+            }
+            LabelSSTRecord.sid.toInt() -> {
+                val cell = record as LabelSSTRecord
+                noteXlsCell(accum, cell.row, cell.column.toInt(), null, cell.sstIndex)
+            }
+            NumberRecord.sid.toInt() -> {
+                val cell = record as NumberRecord
+                noteXlsCell(
+                    accum, cell.row, cell.column.toInt(), plainNumber(cell.value), null,
+                )
+            }
+            RKRecord.sid.toInt() -> {
+                val cell = record as RKRecord
+                noteXlsCell(
+                    accum, cell.row, cell.column.toInt(), plainNumber(cell.rkNumber), null,
+                )
+            }
+            MulRKRecord.sid.toInt() -> {
+                val cell = record as MulRKRecord
+                var col = cell.firstColumn.toInt()
+                val last = cell.lastColumn.toInt()
+                var offset = 0
+                while (col <= last && offset < 512) {
+                    noteXlsCell(
+                        accum, cell.row, col, plainNumber(cell.getRKNumberAt(offset)), null,
+                    )
+                    col++
+                    offset++
+                }
+            }
+        }
+    }
+
+    private fun noteXlsCell(
+        accum: XlsWindowAccum,
+        row: Int,
+        col: Int,
+        text: String?,
+        sst: Int?,
+    ) {
+        if (!accum.onTarget || row < 0 || col < 0) return
+        if (row > accum.maxRow) accum.maxRow = row
+        if (col > accum.maxCol) accum.maxCol = col
+        if (row < accum.startRow || row >= accum.startRow + accum.rowCount) return
+        if (col < accum.startCol || col >= accum.startCol + accum.colCount) return
+        val key = cellKey(row, col)
+        if (sst != null && sst >= 0) {
+            accum.sstAt[key] = sst
+            accum.needed.add(sst)
+            return
+        }
+        if (!text.isNullOrEmpty()) accum.inline[key] = clipWindowCell(text)
+    }
+
+    /**
+     * @return true when the walk should stop after the shared-string table.
+     */
+    private fun walkXls(
+        fs: POIFSFileSystem,
+        onSst: (RecordInputStream) -> Boolean,
+        onRecord: (org.apache.poi.hssf.record.Record) -> Unit,
+    ) {
+        val root = fs.root
+        val entryName = InternalWorkbook.WORKBOOK_DIR_ENTRY_NAMES
+            .firstOrNull { root.hasEntry(it) }
+            ?: throw IllegalStateException("This .xls file has no workbook stream.")
+        val scratch = ByteArray(8192)
+        root.createDocumentInputStream(entryName).use { document ->
+            val input = RecordInputStream(document)
+            while (input.hasNextRecord()) {
+                try {
+                    input.nextRecord()
+                } catch (t: Throwable) {
+                    if (isOversizedRecord(t)) {
+                        Log.w(TAG, "xls record header skipped: ${t.message}")
+                        break
+                    }
+                    throw t
+                }
+                try {
+                    if (input.sid.toInt() == SSTRecord.sid.toInt()) {
+                        try {
+                            if (onSst(input)) break
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "xls sst skipped: ${t.message}")
+                            if (t is Error && t !is OutOfMemoryError) throw t
+                            break
+                        }
+                        continue
+                    }
+                    if (input.remaining() > maxWindowRecordBytes) {
+                        Log.w(
+                            TAG,
+                            "xls record sid=${input.sid} bytes=${input.remaining()} skipped",
+                        )
+                        skipExact(input, input.remaining(), scratch)
+                        continue
+                    }
+                    val created = RecordFactory.createRecord(input) ?: continue
+                    for (record in created) {
+                        if (record != null) onRecord(record)
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "xls record skipped: ${t.javaClass.simpleName}: ${t.message}")
+                    try {
+                        if (input.remaining() > 0) skipExact(input, input.remaining(), scratch)
+                    } catch (_: Throwable) {
+                    }
+                    if (t is OutOfMemoryError || isOversizedRecord(t)) break
+                    if (t is Error) throw t
+                }
+            }
+        }
+    }
+
+    private fun loadSparseSst(fs: POIFSFileSystem, needed: Set<Int>): Map<Int, String> {
+        var found: Map<Int, String> = emptyMap()
+        walkXls(
+            fs,
+            onSst = { input ->
+                found = readSparseSst(input, needed)
+                true
+            },
+            onRecord = {},
+        )
+        return found
+    }
+
+    private fun readSparseSst(input: RecordInputStream, needed: Set<Int>): Map<Int, String> {
+        val kept = HashMap<Int, String>(minOf(needed.size.coerceAtLeast(1), 64))
+        val scratch = ByteArray(8192)
+        try {
+            val total = input.readInt()
+            val unique = input.readInt()
+            if (needed.isNotEmpty()) {
+                logStep("xls window sst total=$total unique=$unique need=${needed.size}")
+            }
+            if (total < 0 || unique < 0) return kept
+            var index = 0
+            while (index < unique) {
+                val want = index in needed
+                val text = readSstString(input, if (want) windowCellChars else 0, scratch)
+                if (want) kept[index] = text
+                index++
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "xls sst stopped: ${t.javaClass.simpleName}: ${t.message}")
+            if (t is Error && t !is OutOfMemoryError) throw t
+        } finally {
+            try {
+                drainRecord(input, scratch)
+            } catch (_: Throwable) {
+            }
+        }
+        return kept
+    }
+
+    private fun sheetWindowResult(
+        names: List<String>,
+        sheetIndex: Int,
+        startRow: Int,
+        startCol: Int,
+        rows: List<List<String>>,
+        hasMoreRows: Boolean,
+        hasMoreCols: Boolean,
+        failed: Boolean,
+    ): Map<String, Any> {
+        return mapOf(
+            "sheetNames" to names.toList(),
+            "sheetName" to (names.getOrNull(sheetIndex) ?: ""),
+            "sheetIndex" to sheetIndex,
+            "sheetCount" to names.size,
+            "startRow" to startRow,
+            "startCol" to startCol,
+            "rowCount" to rows.size,
+            "colCount" to (rows.firstOrNull()?.size ?: 0),
+            "rows" to rows,
+            "hasMoreRows" to hasMoreRows,
+            "hasMoreCols" to hasMoreCols,
+            "failed" to failed,
+        )
+    }
+
+    private fun buildWindowGrid(
+        startRow: Int,
+        rowCount: Int,
+        startCol: Int,
+        colCount: Int,
+        maxRow: Int,
+        maxCol: Int,
+        fill: (Int, Int) -> String,
+    ): Triple<List<List<String>>, Boolean, Boolean> {
+        if (maxRow < startRow || maxCol < startCol) {
+            return Triple(emptyList(), false, false)
+        }
+        val endRow = minOf(startRow + rowCount - 1, maxRow)
+        val endCol = minOf(startCol + colCount - 1, maxCol)
+        val actualRows = endRow - startRow + 1
+        val actualCols = endCol - startCol + 1
+        if (actualRows <= 0 || actualCols <= 0) {
+            return Triple(emptyList(), false, false)
+        }
+        val rows = ArrayList<List<String>>(actualRows)
+        for (localRow in 0 until actualRows) {
+            val absRow = startRow + localRow
+            val line = ArrayList<String>(actualCols)
+            for (localCol in 0 until actualCols) {
+                line.add(fill(absRow, startCol + localCol))
+            }
+            rows.add(line)
+        }
+        return Triple(
+            rows,
+            maxRow >= startRow + rowCount,
+            maxCol >= startCol + colCount,
+        )
+    }
+
+    private fun cellKey(row: Int, col: Int): Long {
+        return (row.toLong() shl 32) or (col.toLong() and 0xffffffffL)
+    }
+
+    private fun clipWindowCell(text: String): String {
+        if (text.isEmpty()) return ""
+        val clean = if (text.indexOf('\u0000') >= 0) text.replace("\u0000", "") else text
+        return if (clean.length <= windowCellChars) clean else clean.substring(0, windowCellChars)
+    }
+
+    private fun appendCapped(into: StringBuilder, chunk: String?) {
+        if (chunk.isNullOrEmpty() || into.length >= windowCellChars) return
+        val room = windowCellChars - into.length
+        if (chunk.length <= room) into.append(chunk) else into.append(chunk, 0, room)
+    }
+
+    private fun plainNumber(value: Double): String {
+        if (value.isNaN() || value.isInfinite()) return ""
+        val asLong = value.toLong()
+        if (kotlin.math.abs(value) < 1.0e15 && value == asLong.toDouble()) {
+            return asLong.toString()
+        }
+        return value.toString()
+    }
+
+    private fun parseA1(ref: String): Pair<Int, Int>? {
+        val cleaned = ref.replace("$", "")
+        var index = 0
+        var col = 0
+        while (index < cleaned.length) {
+            val ch = cleaned[index]
+            if (ch !in 'A'..'Z' && ch !in 'a'..'z') break
+            val letter = if (ch in 'a'..'z') ch - 'a' else ch - 'A'
+            col = col * 26 + letter + 1
+            if (col > 200_000) return null
+            index++
+        }
+        if (index == 0 || index >= cleaned.length) return null
+        var row = 0
+        while (index < cleaned.length) {
+            val ch = cleaned[index]
+            if (ch !in '0'..'9') return null
+            row = row * 10 + (ch - '0')
+            if (row > 2_000_000) return null
+            index++
+        }
+        if (row <= 0) return null
+        return (col - 1) to (row - 1)
+    }
+
+    private fun isOversizedRecord(t: Throwable): Boolean {
+        var current: Throwable? = t
+        var depth = 0
+        while (current != null && depth < 8) {
+            if (current is OutOfMemoryError) return true
+            if (current.javaClass.name.endsWith("RecordFormatException")) return true
+            val message = current.message.orEmpty()
+            if (message.contains("maximum length", ignoreCase = true) ||
+                message.contains("Tried to allocate", ignoreCase = true) ||
+                message.contains("array of length", ignoreCase = true)
+            ) {
+                return true
+            }
+            current = current.cause
+            depth++
+        }
+        return false
+    }
+
+    private fun newPullParser(input: InputStream): XmlPullParser {
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        try {
+            parser.setFeature("http://xmlpull.org/v1/doc/features.html#process-docdecl", false)
+        } catch (_: Exception) {
+        }
+        parser.setInput(InputStreamReader(input, StandardCharsets.UTF_8))
+        return parser
+    }
+
+    private fun xmlLocalName(parser: XmlPullParser): String {
+        val name = parser.name ?: return ""
+        val colon = name.lastIndexOf(':')
+        return if (colon >= 0) name.substring(colon + 1) else name
+    }
+
+    private fun xmlAttr(parser: XmlPullParser, local: String): String? {
+        for (i in 0 until parser.attributeCount) {
+            val name = parser.getAttributeName(i) ?: continue
+            val colon = name.lastIndexOf(':')
+            val bare = if (colon >= 0) name.substring(colon + 1) else name
+            if (bare == local) return parser.getAttributeValue(i)
+        }
+        return null
+    }
+
+    private fun workbookZipEntry(zip: ZipFile): ZipEntry? {
+        var fallback: ZipEntry? = null
+        val entries = zip.entries()
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+            if (entry.isDirectory) continue
+            val name = entry.name.replace('\\', '/')
+            if (name.contains("/_rels/")) continue
+            if (name == "xl/workbook.xml") return entry
+            if (name == "workbook.xml" || name.endsWith("/workbook.xml")) fallback = entry
+        }
+        return fallback
+    }
+
+    private fun findZipEntry(zip: ZipFile, accept: (String) -> Boolean): ZipEntry? {
+        val entries = zip.entries()
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+            if (entry.isDirectory) continue
+            val name = entry.name.replace('\\', '/')
+            if (accept(name)) return entry
+        }
+        return null
+    }
+
+    private fun zipEntryExact(zip: ZipFile, path: String): ZipEntry? {
+        val normalized = path.trim().trimStart('/').replace('\\', '/')
+        if (normalized.isEmpty()) return null
+        zip.getEntry(normalized)?.let { return it }
+        return findZipEntry(zip) { it == normalized }
+    }
+
+    private fun workbookRelsPath(workbookPath: String): String {
+        val slash = workbookPath.lastIndexOf('/')
+        val dir = if (slash >= 0) workbookPath.substring(0, slash) else ""
+        val file = if (slash >= 0) workbookPath.substring(slash + 1) else workbookPath
+        return if (dir.isEmpty()) "_rels/$file.rels" else "$dir/_rels/$file.rels"
+    }
+
+    private fun resolveZipTarget(basePath: String, target: String): String {
+        val decoded = try {
+            URLDecoder.decode(target.trim(), StandardCharsets.UTF_8)
+        } catch (_: Exception) {
+            target.trim()
+        }
+        val cleaned = decoded.replace('\\', '/')
+        if (cleaned.startsWith("/")) return cleaned.trimStart('/')
+        val slash = basePath.lastIndexOf('/')
+        val dir = if (slash >= 0) basePath.substring(0, slash) else ""
+        val parts = ArrayList<String>()
+        if (dir.isNotEmpty()) {
+            for (part in dir.split('/')) {
+                if (part.isNotEmpty()) parts.add(part)
+            }
+        }
+        for (part in cleaned.split('/')) {
+            when (part) {
+                "", "." -> {}
+                ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
+                else -> parts.add(part)
+            }
+        }
+        return parts.joinToString("/")
     }
 
     /** Stops a zip entry from being pulled fully into the XML parser. */

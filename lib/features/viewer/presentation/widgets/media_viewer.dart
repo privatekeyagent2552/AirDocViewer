@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
 import 'package:video_player/video_player.dart';
 import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 
 bool isAudioFormat(String path) {
   final ext = SupportedFormats.extensionOf(path) ?? '';
@@ -36,7 +39,9 @@ class MediaViewer extends StatefulWidget {
 }
 
 class MediaViewerState extends State<MediaViewer> {
+  static final _log = Logger();
   late VideoPlayerController _controller;
+  bool _openFailed = false;
   VideoPlayerController get controller => _controller;
 
   // Outer notifier — viewer_screen VLB listens to this so it rebinds
@@ -218,7 +223,17 @@ class MediaViewerState extends State<MediaViewer> {
     _controller = VideoPlayerController.file(File(widget.filePath));
     _controller.addListener(_onControllerUpdate);
     currentController.value = _controller;
-    _controller.initialize().catchError((_) {});
+    unawaited(_initializePlayer());
+  }
+
+  Future<void> _initializePlayer() async {
+    try {
+      await _controller.initialize();
+    } catch (e, st) {
+      _log.e('Media failed to open', error: e, stackTrace: st);
+      if (!mounted) return;
+      setState(() => _openFailed = true);
+    }
   }
 
   void _onControllerUpdate() {
@@ -259,6 +274,27 @@ class MediaViewerState extends State<MediaViewer> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    if (_openFailed || controller.value.hasError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
+              const SizedBox(height: 16),
+              Text(
+                viewerFailureMessage(l10n, controller.value.errorDescription),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyLarge,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (!controller.value.isInitialized) {
       return Center(
@@ -267,20 +303,7 @@ class MediaViewerState extends State<MediaViewer> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            Text(AppLocalizations.of(context)!.mediaLoading, style: theme.textTheme.bodyMedium),
-          ],
-        ),
-      );
-    }
-
-    if (controller.value.hasError) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text(AppLocalizations.of(context)!.mediaFailedToPlay, style: theme.textTheme.bodyLarge),
+            Text(l10n.mediaLoading, style: theme.textTheme.bodyMedium),
           ],
         ),
       );
@@ -292,13 +315,22 @@ class MediaViewerState extends State<MediaViewer> {
     );
   }
 
+  String _fileSizeLabel() {
+    try {
+      final size = File(widget.filePath).lengthSync();
+      if (size < 1024) return '$size B';
+      if (size < 1024 * 1024) {
+        return '${(size / 1024).toStringAsFixed(1)} KB';
+      }
+      return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } catch (e, st) {
+      _log.e('Could not read media size', error: e, stackTrace: st);
+      return '';
+    }
+  }
+
   Widget _buildAudioView(ThemeData theme) {
-    final size = File(widget.filePath).lengthSync();
-    final sizeStr = size < 1024
-        ? '$size B'
-        : size < 1024 * 1024
-            ? '${(size / 1024).toStringAsFixed(1)} KB'
-            : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    final sizeStr = _fileSizeLabel();
 
     return Center(
       child: Column(

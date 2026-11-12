@@ -3119,6 +3119,72 @@ abstract class AppLocalizations {
   /// **'Error loading document'**
   String get viewerErrorLoadingDocument;
 
+  /// No description provided for @viewerFileOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'This file could not be opened. It may be damaged or unsupported.'**
+  String get viewerFileOpenFailed;
+
+  /// No description provided for @viewerFileTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'This file is too large to open on this device.'**
+  String get viewerFileTooLarge;
+
+  /// No description provided for @viewerOpeningPresentation.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening presentation...'**
+  String get viewerOpeningPresentation;
+
+  /// No description provided for @viewerSlidePosition.
+  ///
+  /// In en, this message translates to:
+  /// **'Slide {current} of {total}'**
+  String viewerSlidePosition(int current, int total);
+
+  /// No description provided for @viewerPreviousSlide.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous slide'**
+  String get viewerPreviousSlide;
+
+  /// No description provided for @viewerNextSlide.
+  ///
+  /// In en, this message translates to:
+  /// **'Next slide'**
+  String get viewerNextSlide;
+
+  /// No description provided for @viewerSlideDrawFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'This slide could not be drawn. You can open another slide.'**
+  String get viewerSlideDrawFailed;
+
+  /// No description provided for @viewerPptTextOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Text only. This legacy PowerPoint file does not include the original colors or pictures.'**
+  String get viewerPptTextOnly;
+
+  /// No description provided for @viewerNoSlideText.
+  ///
+  /// In en, this message translates to:
+  /// **'No text on this slide.'**
+  String get viewerNoSlideText;
+
+  /// No description provided for @viewerNoSlides.
+  ///
+  /// In en, this message translates to:
+  /// **'This presentation has no slides.'**
+  String get viewerNoSlides;
+
+  /// No description provided for @viewerSheetWindowRange.
+  ///
+  /// In en, this message translates to:
+  /// **'Rows {rowStart}–{rowEnd}, columns {colStart}–{colEnd}'**
+  String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd);
+
   /// No description provided for @viewerGoBack.
   ///
   /// In en, this message translates to:

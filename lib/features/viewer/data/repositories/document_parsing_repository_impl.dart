@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
+import 'package:air_docs_viewer/features/viewer/domain/viewer_open_failure.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
 import 'package:air_docs_viewer/features/viewer/domain/repositories/document_parsing_repository.dart';
 import 'package:air_docs_viewer/features/viewer/data/services/cache_service.dart';
@@ -590,7 +591,7 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
           (cachedResult['plainTextContent'] ?? cachedResult['textContent'])
               as String?,
         );
-        return ParsedDocumentEntity(
+        final cached = ParsedDocumentEntity(
           format: cachedResult['format'] ?? 'UNKNOWN',
           sheets: _buildSheetEntities(cachedResult['sheets'] ?? []),
           slides: _buildSlideEntities(cachedResult['slides'] ?? []),
@@ -609,6 +610,11 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
           sourceFilePath: filePath,
           plainTextContent: plain.isEmpty ? null : plain,
         );
+        if (ViewerOpenFailure.codeForDocument(cached) != null) {
+          log.w('Ignoring cached parse that failed to open: $filePath');
+          return null;
+        }
+        return cached;
       }
     } catch (e) {
       log.w('Failed to get cached parsing: $e');
@@ -621,6 +627,10 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
     String filePath,
     ParsedDocumentEntity document,
   ) async {
+    if (ViewerOpenFailure.codeForDocument(document) != null) {
+      log.w('Not caching a file that failed to open: $filePath');
+      return;
+    }
     try {
       final data = {
         'format': document.format,
@@ -798,7 +808,9 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
               return row;
             }
             // Handle mixed types in row data
-            return (row as List<dynamic>).map((e) => e.toString()).toList();
+            return (row as List<dynamic>)
+                .map((e) => e == null ? '' : e.toString())
+                .toList();
           }).toList() ??
           [];
 

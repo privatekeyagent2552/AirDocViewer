@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 /// Full-bleed image viewer with pinch-to-zoom and programmatic zoom controls.
@@ -79,16 +80,23 @@ class ImageViewerState extends State<ImageViewer> {
             File(widget.filePath),
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
-              return Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.broken_image_outlined,
-                      size: 64, color: Colors.grey),
-                  const SizedBox(height: 16),
-                  Text(AppLocalizations.of(context)!.imageFailedToLoad,
+              final l10n = AppLocalizations.of(context)!;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.broken_image_outlined,
+                        size: 64, color: Colors.grey),
+                    const SizedBox(height: 16),
+                    Text(
+                      viewerFailureMessage(l10n, error.toString()),
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
-                ],
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                  ],
+                ),
               );
             },
           ),

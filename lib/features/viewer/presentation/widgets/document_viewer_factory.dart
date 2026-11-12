@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/sheet_entity.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/features/viewer/domain/viewer_open_failure.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 import 'package:air_docs_viewer/l10n/app_localizations.dart';
 import 'professional_sheet_viewer.dart';
 import 'modern_pdf_viewer.dart';
@@ -65,45 +67,58 @@ class DocumentViewerFactory {
   static Widget _buildSpreadsheetViewer(ParsedDocumentEntity document,
       void Function(String?, String)? onSelectionChanged, Key? sheetViewerKey,
       {double zoom = 1.0, ValueChanged<double>? onZoomChanged}) {
-    if (document.sheets.isEmpty) {
+    final sheets = document.sheets;
+    if (sheets.isEmpty) {
+      final failure = ViewerOpenFailure.codeForDocument(document);
       return Center(
-        child: Builder(
-            builder: (ctx) => Text(
-                AppLocalizations.of(ctx)!.documentNoSheets(document.format))),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Builder(
+            builder: (ctx) {
+              final l10n = AppLocalizations.of(ctx)!;
+              return Text(
+                failure == null
+                    ? l10n.documentNoSheets(document.format)
+                    : viewerFailureMessage(l10n, failure),
+                textAlign: TextAlign.center,
+              );
+            },
+          ),
+        ),
       );
     }
 
-    final sheetBody = document.sheetCount == 1
+    final sheetBody = sheets.length == 1
         ? _buildSheetTable(
-            document.sheets.first,
+            sheets.first,
             onSelectionChanged,
             sheetViewerKey,
             zoom: zoom,
             onZoomChanged: onZoomChanged,
           )
         : DefaultTabController(
-              length: document.sheetCount,
+              length: sheets.length,
               child: Column(
                 children: [
                   TabBar(
                     isScrollable: true,
-                    tabs: document.sheets
+                    tabs: sheets
                         .map((sheet) => Tab(text: sheet.name))
                         .toList(),
                   ),
                   Expanded(
                     child: TabBarView(
                       children: [
-                        for (var i = 0; i < document.sheets.length; i++)
+                        for (var i = 0; i < sheets.length; i++)
                           _buildSheetTable(
-                            document.sheets[i],
+                            sheets[i],
                             onSelectionChanged,
                             // GlobalKey must be unique among mounted widgets.
                             // Only the first sheet keeps it for search jump;
                             // other sheets use a ValueKey.
                             i == 0
                                 ? sheetViewerKey
-                                : ValueKey('sheet_${i}_${document.sheets[i].name}'),
+                                : ValueKey('sheet_${i}_${sheets[i].name}'),
                             zoom: zoom,
                             onZoomChanged: onZoomChanged,
                           ),

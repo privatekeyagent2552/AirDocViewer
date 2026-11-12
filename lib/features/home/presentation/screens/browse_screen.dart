@@ -17,6 +17,7 @@ import 'package:air_docs_viewer/core/services/file_security_validator.dart';
 import 'package:air_docs_viewer/features/settings/presentation/providers/settings_providers.dart';
 import 'package:air_docs_viewer/features/settings/domain/entities/app_settings.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/viewer_failure_message.dart';
 
 final log = Logger();
 
@@ -1235,10 +1236,11 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
         _showOpenSettingsDialog();
         return;
       }
-    } catch (e) {
-      log.w('Error checking permissions: $e');
+    } catch (e, st) {
+      log.w('Error checking permissions: $e', error: e, stackTrace: st);
+      if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)!.browseErrorPrefix(e.toString());
+        _error = viewerFailureMessage(AppLocalizations.of(context)!, e.toString());
         _isLoading = false;
       });
     }
@@ -1417,10 +1419,11 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
       });
 
       log.i('Γ£à Scan complete: Found ${allDocs.length} total documents');
-    } catch (e) {
-      log.e('Γ¥î Error scanning device: $e');
+    } catch (e, st) {
+      log.e('Error scanning device: $e', error: e, stackTrace: st);
+      if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = viewerFailureMessage(AppLocalizations.of(context)!, e.toString());
         _isLoading = false;
       });
     }
@@ -1587,11 +1590,15 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
       } else {
         log.i('File picker cancelled by user');
       }
-    } catch (e) {
-      log.e('Error picking files: $e');
+    } catch (e, st) {
+      log.e('Error picking files: $e', error: e, stackTrace: st);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.browseErrorPrefix(e.toString()))),
+          SnackBar(
+            content: Text(
+              viewerFailureMessage(AppLocalizations.of(context)!, e.toString()),
+            ),
+          ),
         );
       }
     }
@@ -1726,11 +1733,15 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen>
         );
         context.pop();
       }
-    } catch (e) {
-      log.e('Γ¥î Error importing files: $e', error: e);
+    } catch (e, st) {
+      log.e('Error importing files: $e', error: e, stackTrace: st);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.browseErrorPrefix(e.toString()))),
+          SnackBar(
+            content: Text(
+              viewerFailureMessage(AppLocalizations.of(context)!, e.toString()),
+            ),
+          ),
         );
       }
     }

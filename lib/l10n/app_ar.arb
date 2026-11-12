@@ -952,6 +952,8 @@
   "viewerNotNow": "ليس الآن",
   "viewerGotIt": "فهمت",
   "viewerErrorLoadingDocument": "خطأ في تحميل المستند",
+  "viewerFileOpenFailed": "تعذر فتح هذا الملف. قد يكون تالفاً أو غير مدعوم.",
+  "viewerFileTooLarge": "هذا الملف كبير جداً ولا يمكن فتحه على هذا الجهاز.",
   "viewerGoBack": "رجوع",
   "viewerReadingTimeMinutes": "{count, plural, =1{قراءة دقيقة واحدة} other{قراءة {count} دقائق}}",
   "@viewerReadingTimeMinutes": {

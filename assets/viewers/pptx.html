@@ -38,7 +38,7 @@
   <script src="pptxjs/divs2slides.js" onerror="window.__pptxScriptError='divs2slides'"></script>
 </head>
 <body>
-  <div id="status">Opening presentation…</div>
+  <div id="status"></div>
   <div id="result"></div>
   <script>
     const statusEl = document.getElementById('status');
@@ -56,6 +56,19 @@
       statusEl.style.display = text ? 'block' : 'none';
       if (window.AirDocsViewer && AirDocsViewer.postMessage) {
         AirDocsViewer.postMessage(JSON.stringify({ type: 'status', message: text || '' }));
+      }
+    }
+
+    function reportDraw(reason, err) {
+      var msg = String(reason || 'slide');
+      if (err && err.message) msg += ': ' + err.message;
+      else if (err) msg += ': ' + String(err);
+      console.log('airdocs slide draw', msg);
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({
+          type: 'slideDrawLog',
+          message: msg.slice(0, 500)
+        }));
       }
     }
 
@@ -142,13 +155,49 @@
       return out;
     }
 
-    async function loadChunks(count) {
+    let renderGen = 0;
+
+    function escapeText(text) {
+      return String(text == null ? '' : text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function cancelChunkReads() {
+      const resolvers = window.__pptxChunkResolvers || {};
+      Object.keys(resolvers).forEach(function(id) {
+        const fn = resolvers[id];
+        delete resolvers[id];
+        try { fn(null); } catch (e) {}
+      });
+    }
+
+    window.airdocsClearSlide = function() {
+      renderGen++;
+      cancelChunkReads();
+      resultEl.innerHTML = '';
+    };
+
+    window.airdocsSetMedia = function(map) {
+      window.__airdocsMediaUrl = map || {};
+    };
+
+    window.airdocsShowSlideNote = function(text) {
+      resultEl.innerHTML = '<div class="slide" style="max-width:920px;margin:24px auto;padding:28px;background:#2b261f;color:#f2f2f2;font:16px/1.45 sans-serif;text-align:center;">' + escapeText(text) + '</div>';
+      setStatus('');
+      if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+        AirDocsViewer.postMessage(JSON.stringify({ type: 'rendered', slideFailed: true }));
+      }
+    };
+
+    async function loadChunks(count, gen) {
       const parts = [];
       for (let i = 0; i < count; i++) {
-        setStatus('Loading slides… ' + Math.min(99, Math.round((i / Math.max(count, 1)) * 100)) + '%');
+        if (gen !== renderGen) return null;
         const chunk = await new Promise((resolve, reject) => {
           window.__pptxChunkResolvers = window.__pptxChunkResolvers || {};
-          const id = 'p' + i + '_' + Date.now();
+          const id = 'p' + i + '_' + gen + '_' + Date.now();
           const timer = setTimeout(() => {
             delete window.__pptxChunkResolvers[id];
             reject(new Error('Timed out loading presentation chunk ' + i));
@@ -164,6 +213,7 @@
             reject(new Error('Offline bridge unavailable'));
           }
         });
+        if (chunk == null || gen !== renderGen) return null;
         parts.push(b64ToBytes(chunk));
       }
       let total = 0;
@@ -202,6 +252,17 @@
       throw new Error('PPTX renderer failed to load');
     }
 
+    function slidePixelSize() {
+      const slide = document.querySelector('#result .slide');
+      if (!slide) return { w: 0, h: 0 };
+      const declaredW = parseFloat(slide.style.width) || 0;
+      const declaredH = parseFloat(slide.style.height) || 0;
+      return {
+        w: Math.max(slide.offsetWidth || 0, declaredW),
+        h: Math.max(slide.offsetHeight || 0, declaredH),
+      };
+    }
+
     function waitForSlides() {
       return new Promise((resolve, reject) => {
         let checks = 0;
@@ -211,7 +272,7 @@
           if (slides.length > 0) {
             clearInterval(poll);
             resolve(slides.length);
-          } else if (checks > 120) {
+          } else if (checks > 40) {
             clearInterval(poll);
             reject(new Error('Could not render this presentation'));
           }
@@ -219,18 +280,18 @@
       });
     }
 
-    let startLock = false;
     window.startOfflinePptx = async function(chunkCount) {
-      if (startLock) return;
-      startLock = true;
+      const gen = ++renderGen;
+      window.__airdocsPaging = true;
+      window.__airdocsPptxTruncated = false;
       try {
         await waitForPptxEngine();
-        setStatus('Preparing PPTX…');
-        const bytes = await loadChunks(chunkCount);
-        setStatus('Rendering slides…');
+        if (gen !== renderGen) return;
         resultEl.innerHTML = '';
-        // PPTXjs normally XHR-fetches pptxFileUrl. Stub the loader so we
-        // never need network or file:// XHR — same bytes Gander would serve.
+        const bytes = await loadChunks(chunkCount, gen);
+        if (!bytes || gen !== renderGen) return;
+        // One slide's XML package. Pictures stay on disk and are referenced
+        // by window.__airdocsMediaUrl, so this buffer is not the whole deck.
         if (!window.JSZipUtils) window.JSZipUtils = {};
         JSZipUtils.getBinaryContent = function(_url, cb) {
           try {
@@ -239,13 +300,26 @@
             cb(err, null);
           }
         };
-        jQuery('#result').pptxToHtml({
-          pptxFileUrl: 'local.pptx',
-          slideMode: false,
-          keyBoardShortCut: false,
-          mediaProcess: true,
-        });
+        try {
+          jQuery('#result').pptxToHtml({
+            pptxFileUrl: 'local.pptx',
+            slideMode: false,
+            keyBoardShortCut: false,
+            mediaProcess: false,
+          });
+        } catch (renderErr) {
+          reportDraw('render', renderErr);
+          if (gen === renderGen) window.airdocsShowSlideNote(window.__airdocsSlideFailText || '');
+          return;
+        }
         const count = await waitForSlides();
+        if (gen !== renderGen) return;
+        const box = slidePixelSize();
+        if (box.w < 2 || box.h < 2) {
+          reportDraw('slide size', 'width=' + box.w + ' height=' + box.h);
+          window.airdocsShowSlideNote(window.__airdocsSlideFailText || '');
+          return;
+        }
         currentZoom = 1;
         applyZoom(1);
         setStatus('');
@@ -256,7 +330,12 @@
           }));
         }
       } catch (e) {
-        startLock = false;
+        if (gen !== renderGen) return;
+        reportDraw('page', e);
+        if (window.__airdocsPaging) {
+          window.airdocsShowSlideNote(window.__airdocsSlideFailText || '');
+          return;
+        }
         fail(e && e.message ? e.message : String(e));
       }
     };

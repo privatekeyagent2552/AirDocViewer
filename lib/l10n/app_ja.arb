@@ -952,6 +952,8 @@
   "viewerNotNow": "後で",
   "viewerGotIt": "了解",
   "viewerErrorLoadingDocument": "ドキュメントの読み込みエラー",
+  "viewerFileOpenFailed": "このファイルを開けませんでした。破損しているか、対応していない形式の可能性があります。",
+  "viewerFileTooLarge": "このファイルは大きすぎるため、この端末では開けません。",
   "viewerGoBack": "戻る",
   "viewerReadingTimeMinutes": "{count, plural, =1{読了 1 分} other{読了 {count} 分}}",
   "@viewerReadingTimeMinutes": {

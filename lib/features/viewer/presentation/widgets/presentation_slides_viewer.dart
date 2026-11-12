@@ -15,6 +15,7 @@ class PresentationSlidesViewer extends StatefulWidget {
     this.zoom = 1.0,
     this.onZoomChanged,
     this.showLegacyNotice = true,
+    this.notice,
   });
 
   final List<SlideEntity> slides;
@@ -22,6 +23,7 @@ class PresentationSlidesViewer extends StatefulWidget {
   final double zoom;
   final ValueChanged<double>? onZoomChanged;
   final bool showLegacyNotice;
+  final String? notice;
 
   static const double minZoom = 0.5;
   static const double maxZoom = 2.5;
@@ -92,6 +94,20 @@ class PresentationSlidesViewerState extends State<PresentationSlidesViewer> {
       color: theme.colorScheme.surface,
       child: Column(
         children: [
+          if (widget.notice != null && widget.notice!.isNotEmpty)
+            Material(
+              color: theme.colorScheme.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Text(
+                  widget.notice!,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onTertiaryContainer,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ),
           if (widget.showLegacyNotice)
             Material(
               color: theme.colorScheme.errorContainer,

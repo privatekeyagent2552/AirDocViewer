@@ -952,6 +952,8 @@
   "viewerNotNow": "Не сейчас",
   "viewerGotIt": "Понятно",
   "viewerErrorLoadingDocument": "Ошибка загрузки документа",
+  "viewerFileOpenFailed": "Не удалось открыть этот файл. Он может быть повреждён или не поддерживается.",
+  "viewerFileTooLarge": "Этот файл слишком большой, чтобы открыть его на этом устройстве.",
   "viewerGoBack": "Назад",
   "viewerReadingTimeMinutes": "{count, plural, =1{1 минута чтения} other{{count} минут чтения}}",
   "@viewerReadingTimeMinutes": {

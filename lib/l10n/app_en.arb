@@ -518,6 +518,43 @@
   "viewerNotNow": "Not Now",
   "viewerGotIt": "Got It",
   "viewerErrorLoadingDocument": "Error loading document",
+  "viewerFileOpenFailed": "This file could not be opened. It may be damaged or unsupported.",
+  "viewerFileTooLarge": "This file is too large to open on this device.",
+  "viewerOpeningPresentation": "Opening presentation...",
+  "viewerSlidePosition": "Slide {current} of {total}",
+  "@viewerSlidePosition": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "viewerPreviousSlide": "Previous slide",
+  "viewerNextSlide": "Next slide",
+  "viewerSlideDrawFailed": "This slide could not be drawn. You can open another slide.",
+  "viewerPptTextOnly": "Text only. This legacy PowerPoint file does not include the original colors or pictures.",
+  "viewerNoSlideText": "No text on this slide.",
+  "viewerNoSlides": "This presentation has no slides.",
+  "viewerSheetWindowRange": "Rows {rowStart}–{rowEnd}, columns {colStart}–{colEnd}",
+  "@viewerSheetWindowRange": {
+    "placeholders": {
+      "rowStart": {
+        "type": "int"
+      },
+      "rowEnd": {
+        "type": "int"
+      },
+      "colStart": {
+        "type": "String"
+      },
+      "colEnd": {
+        "type": "String"
+      }
+    }
+  },
   "viewerGoBack": "Go Back",
   "viewerReadingTimeMinutes": "{count, plural, =1{1 minute read} other{{count} minutes read}}",
   "viewerReadingTimeHoursMinutes": "{hours}h {minutes}m read",

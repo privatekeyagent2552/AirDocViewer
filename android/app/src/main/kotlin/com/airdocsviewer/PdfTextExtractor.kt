@@ -34,7 +34,7 @@ class PdfTextExtractor(private val TAG: String) {
                 val textStripper = PDFTextStripper()
                 textStripper.startPage = pageNumber
                 textStripper.endPage = pageNumber
-                val text = textStripper.getText(document)
+                val text = capPageText(textStripper.getText(document))
                 activity.runOnUiThread {
                     result.success(mapOf(
                         "pageNumber" to pageNumber,
@@ -45,10 +45,12 @@ class PdfTextExtractor(private val TAG: String) {
                 document.close()
             }
             return
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "PDF page text extraction error", e)
-            activity.runOnUiThread { result.error("PDF_ERROR", e.message, null) }
+        } catch (_: OutOfMemoryError) {
+            Log.e(TAG, "PDF page text extraction ran out of memory")
+            replyPdfError(activity, result, "This page has too much text to extract on this device.")
+        } catch (t: Throwable) {
+            Log.e(TAG, "PDF page text extraction error", t)
+            replyPdfError(activity, result, "This file could not be opened.")
         }
     }
     
@@ -93,7 +95,7 @@ class PdfTextExtractor(private val TAG: String) {
 
                 stripper.startPage = pageNumber
                 stripper.endPage = pageNumber
-                val text = stripper.getText(document)
+                val text = capPageText(stripper.getText(document))
                 activity.runOnUiThread {
                     result.success(mapOf(
                         "pageNumber" to pageNumber,
@@ -104,14 +106,35 @@ class PdfTextExtractor(private val TAG: String) {
             } finally {
                 document.close()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "PDF text position extraction error", e)
-            activity.runOnUiThread { result.error("PDF_ERROR", e.message, null) }
+        } catch (_: OutOfMemoryError) {
+            Log.e(TAG, "PDF text position extraction ran out of memory")
+            replyPdfError(activity, result, "This page has too much text to extract on this device.")
+        } catch (t: Throwable) {
+            Log.e(TAG, "PDF text position extraction error", t)
+            replyPdfError(activity, result, "This file could not be opened.")
         }
+    }
+
+    private fun replyPdfError(activity: Activity, result: MethodChannel.Result, message: String) {
+        try {
+            activity.runOnUiThread {
+                try {
+                    result.error("PDF_ERROR", message, null)
+                } catch (_: Throwable) {
+                }
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun capPageText(raw: String): String {
+        if (raw.length <= MAX_PAGE_CHARS) return raw
+        return raw.substring(0, MAX_PAGE_CHARS) + "\n[Page text truncated so it fits in memory.]"
     }
 
     companion object {
         private const val MAX_PDF_BYTES = 32L * 1024 * 1024
         private const val MAX_POSITIONS = 20_000
+        private const val MAX_PAGE_CHARS = 200_000
     }
 }

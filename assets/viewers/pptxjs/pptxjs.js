@@ -74,6 +74,143 @@
 
         processFullTheme = settings.themeProcess;
 
+        // Pictures for the slide on screen. A deck is paged one slide at a
+        // time, so this budget is per slide, not per file. Oversized
+        // pictures become placeholders; the slide itself is still shown.
+        var airdocsMediaBytes = 0;
+        var AIRDOCS_MEDIA_BUDGET = 8 * 1024 * 1024;
+        function airdocsIsVideoName(name) {
+            var ext = extractFileExtension(name || "").toLowerCase();
+            return ext === "mp4" || ext === "m4v" || ext === "mov" || ext === "avi" ||
+                ext === "wmv" || ext === "mpg" || ext === "mpeg" || ext === "webm" ||
+                ext === "ogv" || ext === "3gp" || ext === "mkv";
+        }
+        function airdocsPictureUrl(zip, imgName, perFileCap) {
+            if (!imgName || airdocsIsVideoName(imgName)) return null;
+            var mapped = window.__airdocsMediaUrl && window.__airdocsMediaUrl[imgName];
+            if (mapped) return mapped;
+            var entry = zip && typeof zip.file === "function" ? zip.file(imgName) : null;
+            var bytes = airdocsDecodeMedia(entry, perFileCap || 2500000);
+            if (!bytes) return null;
+            var ext = extractFileExtension(imgName).toLowerCase();
+            return "data:" + getMimeType(ext) + ";base64," + base64ArrayBuffer(bytes);
+        }
+        function airdocsFailedSlide() {
+            var text = window.__airdocsSlideFailText || "";
+            var safe = String(text).replace(/[&<>]/g, function (c) {
+                return c === "&" ? "&amp;" : (c === "<" ? "&lt;" : "&gt;");
+            });
+            return "<div class='slide' style='width:960px;height:540px;margin:24px auto;display:flex;align-items:center;justify-content:center;background:#2b261f;color:#f2f2f2;font:16px/1.45 sans-serif;padding:24px;box-sizing:border-box;text-align:center;'>" + safe + "</div>";
+        }
+        function airdocsLog(reason, err) {
+            var msg = reason || "slide";
+            if (err) msg += ": " + (err.message || String(err));
+            console.log("airdocs slide draw", msg);
+            try {
+                if (window.AirDocsViewer && AirDocsViewer.postMessage) {
+                    AirDocsViewer.postMessage(JSON.stringify({
+                        type: "slideDrawLog",
+                        message: String(msg).slice(0, 500)
+                    }));
+                }
+            } catch (ignore) {}
+        }
+        // pptxjs used to keep only the first "../" → "ppt/" and left a leading
+        // slash in place, so absolute relationship targets missed the part
+        // stored in the one-slide package.
+        function airdocsNormalizeZipPath(target) {
+            if (target == null) return "";
+            var t = String(target).replace(/\\/g, "/").trim();
+            if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
+            if (t.charAt(0) === "/") t = t.substring(1);
+            var dot = t.indexOf("../");
+            if (dot >= 0) t = t.substring(0, dot) + "ppt/" + t.substring(dot + 3);
+            var parts = [];
+            var segs = t.split("/");
+            for (var i = 0; i < segs.length; i++) {
+                if (!segs[i] || segs[i] === ".") continue;
+                if (segs[i] === "..") {
+                    if (parts.length) parts.pop();
+                    continue;
+                }
+                parts.push(segs[i]);
+            }
+            return parts.join("/");
+        }
+        function airdocsReadRels(zip, filename) {
+            try {
+                var content = readXmlFile(zip, filename);
+                var rels = content && content["Relationships"]
+                    ? content["Relationships"]["Relationship"]
+                    : null;
+                if (!rels) return [];
+                return rels.constructor === Array ? rels : [rels];
+            } catch (err) {
+                airdocsLog("relationships " + filename, err);
+                return [];
+            }
+        }
+        function airdocsRelEntry(rel) {
+            var attrs = rel && rel["attrs"] ? rel["attrs"] : {};
+            var type = attrs["Type"] || "";
+            return {
+                id: attrs["Id"] || "",
+                type: type,
+                shortType: type.replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
+                target: airdocsNormalizeZipPath(attrs["Target"] || "")
+            };
+        }
+        function airdocsGrayFrame(xfrmNode, order) {
+            var pos = "";
+            var size = "";
+            try {
+                if (xfrmNode) {
+                    pos = getPosition(xfrmNode, undefined, undefined, undefined) || "";
+                    size = getSize(xfrmNode, undefined, undefined) || "";
+                }
+            } catch (err) {
+                airdocsLog("placeholder", err);
+            }
+            return "<div class='block content' style='" + pos + size +
+                "z-index:" + (order || 1) + ";background:#d9d9d9;'></div>";
+        }
+        function airdocsPtAttrs(pt) {
+            if (!pt) return null;
+            if (pt["attrs"] && (pt["attrs"]["x"] !== undefined || pt["attrs"]["y"] !== undefined)) {
+                return pt["attrs"];
+            }
+            if (pt["x"] !== undefined || pt["y"] !== undefined) return pt;
+            return pt["attrs"] || null;
+        }
+        function airdocsDeclaredSize(entry) {
+            if (!entry || !entry._data) return -1;
+            var n = entry._data.uncompressedSize;
+            return typeof n === "number" ? n : -1;
+        }
+        function airdocsDecodeMedia(entry, perFileCap) {
+            if (!entry) return null;
+            var declared = airdocsDeclaredSize(entry);
+            if (declared > perFileCap || airdocsMediaBytes >= AIRDOCS_MEDIA_BUDGET ||
+                (declared > 0 && airdocsMediaBytes + declared > AIRDOCS_MEDIA_BUDGET)) {
+                window.__airdocsPptxTruncated = true;
+                return null;
+            }
+            var bytes;
+            try {
+                bytes = entry.asArrayBuffer();
+            } catch (err) {
+                window.__airdocsPptxTruncated = true;
+                return null;
+            }
+            var actual = bytes ? (bytes.byteLength || bytes.length || 0) : 0;
+            if (!actual || actual > perFileCap || airdocsMediaBytes + actual > AIRDOCS_MEDIA_BUDGET) {
+                window.__airdocsPptxTruncated = true;
+                return null;
+            }
+            airdocsMediaBytes += actual;
+            return bytes;
+        }
+
         $("#" + divId).prepend(
             $("<div></div>").attr({
                 "class": "slides-loadnig-msg",
@@ -125,7 +262,14 @@
                         on: {
                             load: function (e, file) {
                                 //console.log(e.target.result);
-                                convertToHtml(e.target.result);
+                                try {
+                                    convertToHtml(e.target.result);
+                                } catch (convertErr) {
+                                    airdocsLog("convert", convertErr);
+                                    if ($("#" + divId + " .slide").length === 0) {
+                                        $("#" + divId).append(airdocsFailedSlide());
+                                    }
+                                }
                             }
                         }
                     });
@@ -332,7 +476,15 @@
             }
 
             var filesInfo = getContentTypes(zip);
-            var slideSize = getSlideSizeAndSetDefaultTextStyle(zip);
+            var slideSize;
+            try {
+                slideSize = getSlideSizeAndSetDefaultTextStyle(zip);
+            } catch (sizeErr) {
+                console.log("airdocs slide size", sizeErr);
+                app_verssion = 16;
+                defaultTextStyle = {};
+                slideSize = { width: 960, height: 540 };
+            }
             tableStyles = readXmlFile(zip, "ppt/tableStyles.xml");
             //console.log("slideSize: ", slideSize)
             post_ary.push({
@@ -341,7 +493,28 @@
                 "slide_num": 0
             });
 
+            if (!filesInfo["slides"].length && zip.files) {
+                var foundSlides = [];
+                for (var slideName in zip.files) {
+                    if (/ppt\/slides\/slide\d+\.xml$/i.test(slideName)) {
+                        foundSlides.push(slideName.replace(/^\//, ""));
+                    }
+                }
+                foundSlides.sort();
+                if (foundSlides.length) {
+                    airdocsLog("content types omitted the slide; using " + foundSlides[0]);
+                    filesInfo["slides"] = foundSlides;
+                }
+            }
             var numOfSlides = filesInfo["slides"].length;
+            if (!numOfSlides) {
+                airdocsLog("no slide part in package");
+                post_ary.push({
+                    "type": "slide",
+                    "data": airdocsFailedSlide(),
+                    "slide_num": 1
+                });
+            }
             for (var i = 0; i < numOfSlides; i++) {
                 var filename = filesInfo["slides"][i];
                 var filename_no_path = "";
@@ -362,7 +535,13 @@
                 if (filename_no_path_no_ext != "" && filename_no_path.indexOf("slide") != -1) {
                     slide_number = Number(filename_no_path_no_ext.substr(5));
                 }
-                var slideHtml = processSingleSlide(zip, filename, i, slideSize);
+                var slideHtml;
+                try {
+                    slideHtml = processSingleSlide(zip, filename, i, slideSize);
+                } catch (slideErr) {
+                    airdocsLog("slide render", slideErr);
+                    slideHtml = airdocsFailedSlide();
+                }
                 post_ary.push({
                     "type": "slide",
                     "data": slideHtml,
@@ -415,8 +594,15 @@
         }
         function getContentTypes(zip) {
             var ContentTypesJson = readXmlFile(zip, "[Content_Types].xml");
-
-            var subObj = ContentTypesJson["Types"]["Override"];
+            var subObj = ContentTypesJson && ContentTypesJson["Types"]
+                ? ContentTypesJson["Types"]["Override"]
+                : null;
+            if (!subObj) {
+                return { "slides": [], "slideLayouts": [] };
+            }
+            if (subObj.constructor !== Array) {
+                subObj = [subObj];
+            }
             var slidesLocArray = [];
             var slideLayoutsLocArray = [];
             for (var i = 0; i < subObj.length; i++) {
@@ -446,11 +632,23 @@
             //get slide dimensions
             var rtenObj = {};
             var content = readXmlFile(zip, "ppt/presentation.xml");
-            var sldSzAttrs = content["p:presentation"]["p:sldSz"]["attrs"];
-            var sldSzWidth = parseInt(sldSzAttrs["cx"]);
-            var sldSzHeight = parseInt(sldSzAttrs["cy"]);
+            var pres = content && content["p:presentation"] ? content["p:presentation"] : null;
+            var sldSzNode = pres ? pres["p:sldSz"] : null;
+            if (sldSzNode && sldSzNode.constructor === Array) sldSzNode = sldSzNode[0];
+            var sldSzAttrs = (sldSzNode && sldSzNode["attrs"]) ? sldSzNode["attrs"] : {};
+            var sldSzWidth = parseInt(sldSzAttrs["cx"], 10);
+            var sldSzHeight = parseInt(sldSzAttrs["cy"], 10);
+            // A missing type used to log "undefined" and a missing cx/cy became a 0×0 slide.
+            if (!(sldSzWidth > 0)) sldSzWidth = 12192000;
+            if (!(sldSzHeight > 0)) sldSzHeight = 6858000;
             var sldSzType = sldSzAttrs["type"];
-            console.log("Presentation size type: ", sldSzType)
+            if (!sldSzType) {
+                var ratio = sldSzWidth / sldSzHeight;
+                sldSzType = Math.abs(ratio - (16 / 9)) <= Math.abs(ratio - (4 / 3))
+                    ? "screen16x9"
+                    : "screen4x3";
+            }
+            console.log("Presentation size type: ", sldSzType, "cx=", sldSzWidth, "cy=", sldSzHeight)
 
             //1 inches  = 96px = 2.54cm
             // 1 EMU = 1 / 914400 inch
@@ -486,10 +684,12 @@
             //console.log("scaleX: ", scaleX, "scaleY:", scaleY)
             //slideFactor = slideFactor * scaleX;
 
-            defaultTextStyle = content["p:presentation"]["p:defaultTextStyle"];
+            defaultTextStyle = (pres && pres["p:defaultTextStyle"]) ? pres["p:defaultTextStyle"] : {};
 
-            slideWidth = sldSzWidth * slideFactor + settings.incSlide.width|0;// * scaleX;//parseInt(sldSzAttrs["cx"]) * 96 / 914400;
-            slideHeight = sldSzHeight * slideFactor + settings.incSlide.height|0;// * scaleY;//parseInt(sldSzAttrs["cy"]) * 96 / 914400;
+            slideWidth = Math.round(sldSzWidth * slideFactor) + (settings.incSlide.width || 0);
+            slideHeight = Math.round(sldSzHeight * slideFactor) + (settings.incSlide.height || 0);
+            if (!(slideWidth > 1)) slideWidth = 1280;
+            if (!(slideHeight > 1)) slideHeight = 720;
             rtenObj = {
                 "width": slideWidth,
                 "height": slideHeight
@@ -508,42 +708,30 @@
             // @sldFileName: ppt/slides/slide1.xml
             // @resName: ppt/slides/_rels/slide1.xml.rels
             var resName = sldFileName.replace("slides/slide", "slides/_rels/slide") + ".rels";
-            var resContent = readXmlFile(zip, resName);
-            var RelationshipArray = resContent["Relationships"]["Relationship"];
-            //console.log("RelationshipArray: " , RelationshipArray)
             var layoutFilename = "";
             var diagramFilename = "";
             var slideResObj = {};
-            if (RelationshipArray.constructor === Array) {
-                for (var i = 0; i < RelationshipArray.length; i++) {
-                    switch (RelationshipArray[i]["attrs"]["Type"]) {
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout":
-                            layoutFilename = RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/");
-                            break;
-                        case "http://schemas.microsoft.com/office/2007/relationships/diagramDrawing":
-                            diagramFilename = RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/");
-                            slideResObj[RelationshipArray[i]["attrs"]["Id"]] = {
-                                "type": RelationshipArray[i]["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                "target": RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/")
-                            };
-                            break;
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide":
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image":
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart":
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink":
-                        default:
-                            slideResObj[RelationshipArray[i]["attrs"]["Id"]] = {
-                                "type": RelationshipArray[i]["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                "target": RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/")
-                            };
-                    }
+            var slideRels = airdocsReadRels(zip, resName);
+            for (var i = 0; i < slideRels.length; i++) {
+                var slideRel = airdocsRelEntry(slideRels[i]);
+                if (!slideRel.id) continue;
+                if (slideRel.type.indexOf("/slideLayout") !== -1 && !layoutFilename) {
+                    layoutFilename = slideRel.target;
+                    continue;
                 }
-            } else {
-                layoutFilename = RelationshipArray["attrs"]["Target"].replace("../", "ppt/");
+                if (slideRel.type.indexOf("diagramDrawing") !== -1 && !diagramFilename) {
+                    diagramFilename = slideRel.target;
+                }
+                // Notes, charts, images, and embeddings stay in the map.
+                // Missing parts become placeholders later; they do not abort the slide.
+                slideResObj[slideRel.id] = {
+                    "type": slideRel.shortType,
+                    "target": slideRel.target
+                };
             }
             //console.log(slideResObj);
             // Open slideLayoutXX.xml
-            var slideLayoutContent = readXmlFile(zip, layoutFilename);
+            var slideLayoutContent = layoutFilename ? readXmlFile(zip, layoutFilename) : null;
             var slideLayoutTables = indexNodes(slideLayoutContent);
             var sldLayoutClrOvr = getTextByPathList(slideLayoutContent, ["p:sldLayout", "p:clrMapOvr", "a:overrideClrMapping"]);
 
@@ -555,123 +743,98 @@
             // Read slide master filename of the slidelayout (Get slideMasterXX.xml)
             // @resName: ppt/slideLayouts/slideLayout1.xml
             // @masterName: ppt/slideLayouts/_rels/slideLayout1.xml.rels
-            var slideLayoutResFilename = layoutFilename.replace("slideLayouts/slideLayout", "slideLayouts/_rels/slideLayout") + ".rels";
-            var slideLayoutResContent = readXmlFile(zip, slideLayoutResFilename);
-            RelationshipArray = slideLayoutResContent["Relationships"]["Relationship"];
             var masterFilename = "";
             var layoutResObj = {};
-            if (RelationshipArray.constructor === Array) {
-                for (var i = 0; i < RelationshipArray.length; i++) {
-                    switch (RelationshipArray[i]["attrs"]["Type"]) {
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster":
-                            masterFilename = RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/");
-                            break;
-                        default:
-                            layoutResObj[RelationshipArray[i]["attrs"]["Id"]] = {
-                                "type": RelationshipArray[i]["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                "target": RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/")
-                            };
+            if (layoutFilename) {
+                var slideLayoutResFilename = layoutFilename.replace("slideLayouts/slideLayout", "slideLayouts/_rels/slideLayout") + ".rels";
+                var layoutRels = airdocsReadRels(zip, slideLayoutResFilename);
+                for (var li = 0; li < layoutRels.length; li++) {
+                    var layoutRel = airdocsRelEntry(layoutRels[li]);
+                    if (!layoutRel.id) continue;
+                    if (layoutRel.type.indexOf("/slideMaster") !== -1 && !masterFilename) {
+                        masterFilename = layoutRel.target;
+                        continue;
                     }
+                    layoutResObj[layoutRel.id] = {
+                        "type": layoutRel.shortType,
+                        "target": layoutRel.target
+                    };
                 }
-            } else {
-                masterFilename = RelationshipArray["attrs"]["Target"].replace("../", "ppt/");
             }
             // Open slideMasterXX.xml
-            var slideMasterContent = readXmlFile(zip, masterFilename);
+            var slideMasterContent = masterFilename ? readXmlFile(zip, masterFilename) : null;
             var slideMasterTextStyles = getTextByPathList(slideMasterContent, ["p:sldMaster", "p:txStyles"]);
             var slideMasterTables = indexNodes(slideMasterContent);
 
             /////////////////Amir/////////////
             //Open slideMasterXX.xml.rels
-            var slideMasterResFilename = masterFilename.replace("slideMasters/slideMaster", "slideMasters/_rels/slideMaster") + ".rels";
-            var slideMasterResContent = readXmlFile(zip, slideMasterResFilename);
-            RelationshipArray = slideMasterResContent["Relationships"]["Relationship"];
             var themeFilename = "";
             var masterResObj = {};
-            if (RelationshipArray.constructor === Array) {
-                for (var i = 0; i < RelationshipArray.length; i++) {
-                    switch (RelationshipArray[i]["attrs"]["Type"]) {
-                        case "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme":
-                            themeFilename = RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/");
-                            break;
-                        default:
-                            masterResObj[RelationshipArray[i]["attrs"]["Id"]] = {
-                                "type": RelationshipArray[i]["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                "target": RelationshipArray[i]["attrs"]["Target"].replace("../", "ppt/")
-                            };
+            if (masterFilename) {
+                var slideMasterResFilename = masterFilename.replace("slideMasters/slideMaster", "slideMasters/_rels/slideMaster") + ".rels";
+                var masterRels = airdocsReadRels(zip, slideMasterResFilename);
+                for (var mi = 0; mi < masterRels.length; mi++) {
+                    var masterRel = airdocsRelEntry(masterRels[mi]);
+                    if (!masterRel.id) continue;
+                    if (masterRel.type.indexOf("/theme") !== -1 && !themeFilename) {
+                        themeFilename = masterRel.target;
+                        continue;
                     }
+                    masterResObj[masterRel.id] = {
+                        "type": masterRel.shortType,
+                        "target": masterRel.target
+                    };
                 }
-            } else {
-                themeFilename = RelationshipArray["attrs"]["Target"].replace("../", "ppt/");
             }
             //console.log(themeFilename)
             //Load Theme file
             var themeResObj = {};
-            if (themeFilename !== undefined) {
+            var themeContent = null;
+            if (themeFilename) {
                 var themeName = themeFilename.split("/").pop();
                 var themeResFileName = themeFilename.replace(themeName, "_rels/" + themeName) + ".rels";
-                //console.log("themeFilename: ", themeFilename, ", themeName: ", themeName, ", themeResFileName: ", themeResFileName)
-                var themeContent = readXmlFile(zip, themeFilename);
-                var themeResContent = readXmlFile(zip, themeResFileName);
-                if (themeResContent !== null) {
-                    var relationshipArray = themeResContent["Relationships"]["Relationship"];
-                    if (relationshipArray !== undefined){
-                        var themeFilename = "";
-                        if (relationshipArray.constructor === Array) {
-                            for (var i = 0; i < relationshipArray.length; i++) {
-                                themeResObj[relationshipArray[i]["attrs"]["Id"]] = {
-                                    "type": relationshipArray[i]["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                    "target": relationshipArray[i]["attrs"]["Target"].replace("../", "ppt/")
-                                };
-                            }
-                        } else {
-                            //console.log("theme relationshipArray : ", relationshipArray)
-                            themeResObj[relationshipArray["attrs"]["Id"]] = {
-                                "type": relationshipArray["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                "target": relationshipArray["attrs"]["Target"].replace("../", "ppt/")
-                            };
-                        }
-                    }
+                themeContent = readXmlFile(zip, themeFilename);
+                var themeResList = airdocsReadRels(zip, themeResFileName);
+                for (var ti = 0; ti < themeResList.length; ti++) {
+                    var themeRel = airdocsRelEntry(themeResList[ti]);
+                    if (!themeRel.id) continue;
+                    themeResObj[themeRel.id] = {
+                        "type": themeRel.shortType,
+                        "target": themeRel.target
+                    };
                 }
             }
             //Load diagram file
             var diagramResObj = {};
             var digramFileContent = {};
-            if (diagramFilename !== undefined) {
-                var diagName = diagramFilename.split("/").pop();
-                var diagramResFileName = diagramFilename.replace(diagName, "_rels/" + diagName) + ".rels";
-                //console.log("diagramFilename: ", diagramFilename, ", themeName: ", themeName, ", diagramResFileName: ", diagramResFileName)
-                digramFileContent = readXmlFile(zip, diagramFilename);
-                if (digramFileContent !== null && digramFileContent !== undefined && digramFileContent != "") {
-                    var digramFileContentObjToStr = JSON.stringify(digramFileContent);
-                    digramFileContentObjToStr = digramFileContentObjToStr.replace(/dsp:/g, "p:");
-                    digramFileContent = JSON.parse(digramFileContentObjToStr);
-                }
-
-                var digramResContent = readXmlFile(zip, diagramResFileName);
-                if (digramResContent !== null) {
-                    var relationshipArray = digramResContent["Relationships"]["Relationship"];
-                    var themeFilename = "";
-                    if (relationshipArray.constructor === Array) {
-                        for (var i = 0; i < relationshipArray.length; i++) {
-                            diagramResObj[relationshipArray[i]["attrs"]["Id"]] = {
-                                "type": relationshipArray[i]["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                                "target": relationshipArray[i]["attrs"]["Target"].replace("../", "ppt/")
-                            };
-                        }
-                    } else {
-                        //console.log("theme relationshipArray : ", relationshipArray)
-                        diagramResObj[relationshipArray["attrs"]["Id"]] = {
-                            "type": relationshipArray["attrs"]["Type"].replace("http://schemas.openxmlformats.org/officeDocument/2006/relationships/", ""),
-                            "target": relationshipArray["attrs"]["Target"].replace("../", "ppt/")
+            if (diagramFilename) {
+                try {
+                    var diagName = diagramFilename.split("/").pop();
+                    var diagramResFileName = diagramFilename.replace(diagName, "_rels/" + diagName) + ".rels";
+                    digramFileContent = readXmlFile(zip, diagramFilename);
+                    if (digramFileContent !== null && digramFileContent !== undefined && digramFileContent != "") {
+                        var digramFileContentObjToStr = JSON.stringify(digramFileContent);
+                        digramFileContentObjToStr = digramFileContentObjToStr.replace(/dsp:/g, "p:");
+                        digramFileContent = JSON.parse(digramFileContentObjToStr);
+                    }
+                    var diagramRels = airdocsReadRels(zip, diagramResFileName);
+                    for (var di = 0; di < diagramRels.length; di++) {
+                        var diagramRel = airdocsRelEntry(diagramRels[di]);
+                        if (!diagramRel.id) continue;
+                        diagramResObj[diagramRel.id] = {
+                            "type": diagramRel.shortType,
+                            "target": diagramRel.target
                         };
                     }
+                } catch (diagramErr) {
+                    airdocsLog("diagram", diagramErr);
+                    digramFileContent = {};
                 }
             }
             //console.log("diagramResObj: " , diagramResObj)
             // =====< Step 3 >=====
             var slideContent = readXmlFile(zip, sldFileName , true);
-            var nodes = slideContent["p:sld"]["p:cSld"]["p:spTree"];
+            var nodes = getTextByPathList(slideContent, ["p:sld", "p:cSld", "p:spTree"]) || {};
             var warpObj = {
                 "zip": zip,
                 "slideLayoutContent": slideLayoutContent,
@@ -691,12 +854,22 @@
             };
             var bgResult = "";
             if (processFullTheme === true) {
-                bgResult = getBackground(warpObj, slideSize, index);
+                try {
+                    bgResult = getBackground(warpObj, slideSize, index);
+                } catch (bgErr) {
+                    airdocsLog("background", bgErr);
+                    bgResult = "";
+                }
             }
 
             var bgColor = "";
             if (processFullTheme == "colorsAndImageOnly") {
-                bgColor = getSlideBackgroundFill(warpObj, index);
+                try {
+                    bgColor = getSlideBackgroundFill(warpObj, index);
+                } catch (bgFillErr) {
+                    airdocsLog("background fill", bgFillErr);
+                    bgColor = "";
+                }
             }
 
             if (settings.slideMode && settings.slideType == "revealjs") {
@@ -706,12 +879,18 @@
             }
             result += bgResult;
             for (var nodeKey in nodes) {
-                if (nodes[nodeKey].constructor === Array) {
-                    for (var i = 0; i < nodes[nodeKey].length; i++) {
-                        result += processNodesInSlide(nodeKey, nodes[nodeKey][i], nodes, warpObj, "slide");
+                var nodeValue = nodes[nodeKey];
+                if (!nodeValue || typeof nodeValue !== "object") continue;
+                try {
+                    if (nodeValue.constructor === Array) {
+                        for (var i = 0; i < nodeValue.length; i++) {
+                            result += processNodesInSlide(nodeKey, nodeValue[i], nodes, warpObj, "slide");
+                        }
+                    } else {
+                        result += processNodesInSlide(nodeKey, nodeValue, nodes, warpObj, "slide");
                     }
-                } else {
-                    result += processNodesInSlide(nodeKey, nodes[nodeKey], nodes, warpObj, "slide");
+                } catch (nodeErr) {
+                    airdocsLog("slide node " + nodeKey, nodeErr);
                 }
             }
             if (settings.slideMode && settings.slideType == "revealjs") {
@@ -724,8 +903,28 @@
 
         function indexNodes(content) {
 
+            var idTable = {};
+            var idxTable = {};
+            var typeTable = {};
+            if (!content || typeof content !== "object") {
+                return { "idTable": idTable, "idxTable": idxTable, "typeTable": typeTable };
+            }
             var keys = Object.keys(content);
-            var spTreeNode = content[keys[0]]["p:cSld"]["p:spTree"];
+            var root = null;
+            for (var ki = 0; ki < keys.length; ki++) {
+                if (keys[ki] === "attrs" || keys[ki] === "pos") continue;
+                if (content[keys[ki]] && content[keys[ki]]["p:cSld"]) {
+                    root = content[keys[ki]];
+                    break;
+                }
+            }
+            if (!root) {
+                return { "idTable": idTable, "idxTable": idxTable, "typeTable": typeTable };
+            }
+            var spTreeNode = root["p:cSld"]["p:spTree"];
+            if (!spTreeNode) {
+                return { "idTable": idTable, "idxTable": idxTable, "typeTable": typeTable };
+            }
 
             var idTable = {};
             var idxTable = {};
@@ -738,6 +937,7 @@
                 }
 
                 var targetNode = spTreeNode[key];
+                if (!targetNode || typeof targetNode !== "object") continue;
 
                 if (targetNode.constructor === Array) {
                     for (var i = 0; i < targetNode.length; i++) {
@@ -780,7 +980,7 @@
 
         function processNodesInSlide(nodeKey, nodeValue, nodes, warpObj, source, sType) {
             var result = "";
-
+            try {
             switch (nodeKey) {
                 case "p:sp":    // Shape, Text
                     result = processSpNode(nodeValue, nodes, warpObj, source, sType);
@@ -807,21 +1007,37 @@
             }
 
             return result;
+            } catch (nodeErr) {
+                airdocsLog("node " + nodeKey, nodeErr);
+                if (nodeKey === "p:pic" || nodeKey === "p:graphicFrame" || nodeKey === "p:grpSp") {
+                    return "<div class='block content' style='background:#d9d9d9;'></div>";
+                }
+                return "";
+            }
 
         }
 
         function processGroupSpNode(node, warpObj, source) {
+            if (!node || typeof node !== "object") return "";
             //console.log("processGroupSpNode: node: ", node)
             var xfrmNode = getTextByPathList(node, ["p:grpSpPr", "a:xfrm"]);
             if (xfrmNode !== undefined) {
-                var x = parseInt(xfrmNode["a:off"]["attrs"]["x"]) * slideFactor;
-                var y = parseInt(xfrmNode["a:off"]["attrs"]["y"]) * slideFactor;
-                var chx = parseInt(xfrmNode["a:chOff"]["attrs"]["x"]) * slideFactor;
-                var chy = parseInt(xfrmNode["a:chOff"]["attrs"]["y"]) * slideFactor;
-                var cx = parseInt(xfrmNode["a:ext"]["attrs"]["cx"]) * slideFactor;
-                var cy = parseInt(xfrmNode["a:ext"]["attrs"]["cy"]) * slideFactor;
-                var chcx = parseInt(xfrmNode["a:chExt"]["attrs"]["cx"]) * slideFactor;
-                var chcy = parseInt(xfrmNode["a:chExt"]["attrs"]["cy"]) * slideFactor;
+                var x = parseInt(getTextByPathList(xfrmNode, ["a:off", "attrs", "x"])) * slideFactor;
+                var y = parseInt(getTextByPathList(xfrmNode, ["a:off", "attrs", "y"])) * slideFactor;
+                var chx = parseInt(getTextByPathList(xfrmNode, ["a:chOff", "attrs", "x"])) * slideFactor;
+                var chy = parseInt(getTextByPathList(xfrmNode, ["a:chOff", "attrs", "y"])) * slideFactor;
+                var cx = parseInt(getTextByPathList(xfrmNode, ["a:ext", "attrs", "cx"])) * slideFactor;
+                var cy = parseInt(getTextByPathList(xfrmNode, ["a:ext", "attrs", "cy"])) * slideFactor;
+                var chcx = parseInt(getTextByPathList(xfrmNode, ["a:chExt", "attrs", "cx"])) * slideFactor;
+                var chcy = parseInt(getTextByPathList(xfrmNode, ["a:chExt", "attrs", "cy"])) * slideFactor;
+                if (isNaN(x)) x = 0;
+                if (isNaN(y)) y = 0;
+                if (isNaN(chx)) chx = 0;
+                if (isNaN(chy)) chy = 0;
+                if (isNaN(cx)) cx = 0;
+                if (isNaN(cy)) cy = 0;
+                if (isNaN(chcx)) chcx = 0;
+                if (isNaN(chcy)) chcy = 0;
                 var rotate = parseInt(xfrmNode["attrs"]["rot"])
                 var rotStr = ""//;" border: 3px solid black;";
                 // angleToDegrees(getTextByPathList(slideXfrmNode, ["attrs", "rot"]));
@@ -868,18 +1084,20 @@
             if (height !== undefined) {
                 grpStyle += "height: " + height + "px;";
             }
-            var order = node["attrs"]["order"];
+            var order = node["attrs"] ? node["attrs"]["order"] : 0;
 
             var result = "<div class='block group' style='z-index: " + order + ";" + grpStyle + " border:1px solid red;'>";
 
             // Procsee all child nodes
             for (var nodeKey in node) {
-                if (node[nodeKey].constructor === Array) {
-                    for (var i = 0; i < node[nodeKey].length; i++) {
-                        result += processNodesInSlide(nodeKey, node[nodeKey][i], node, warpObj, source, sType);
+                var child = node[nodeKey];
+                if (!child || typeof child !== "object") continue;
+                if (child.constructor === Array) {
+                    for (var i = 0; i < child.length; i++) {
+                        result += processNodesInSlide(nodeKey, child[i], node, warpObj, source, sType);
                     }
                 } else {
-                    result += processNodesInSlide(nodeKey, node[nodeKey], node, warpObj, source, sType);
+                    result += processNodesInSlide(nodeKey, child, node, warpObj, source, sType);
                 }
             }
 
@@ -1016,13 +1234,23 @@
             }
             //////////////////////////////////////////////////
             if (shapType !== undefined || custShapType !== undefined /*&& slideXfrmNode !== undefined*/) {
-                var off = getTextByPathList(slideXfrmNode, ["a:off", "attrs"]);
+                var off = getTextByPathList(slideXfrmNode, ["a:off", "attrs"]) ||
+                    getTextByPathList(slideLayoutXfrmNode, ["a:off", "attrs"]) ||
+                    getTextByPathList(slideMasterXfrmNode, ["a:off", "attrs"]) ||
+                    { "x": "0", "y": "0" };
                 var x = parseInt(off["x"]) * slideFactor;
                 var y = parseInt(off["y"]) * slideFactor;
+                if (isNaN(x)) x = 0;
+                if (isNaN(y)) y = 0;
 
-                var ext = getTextByPathList(slideXfrmNode, ["a:ext", "attrs"]);
+                var ext = getTextByPathList(slideXfrmNode, ["a:ext", "attrs"]) ||
+                    getTextByPathList(slideLayoutXfrmNode, ["a:ext", "attrs"]) ||
+                    getTextByPathList(slideMasterXfrmNode, ["a:ext", "attrs"]) ||
+                    { "cx": "0", "cy": "0" };
                 var w = parseInt(ext["cx"]) * slideFactor;
                 var h = parseInt(ext["cy"]) * slideFactor;
+                if (isNaN(w)) w = 0;
+                if (isNaN(h)) h = 0;
 
                 var svgCssName = "_svg_css_" + (Object.keys(styleTable).length + 1) + "_"  + Math.floor(Math.random() * 1001);
                 //console.log("name:", name, "svgCssName: ", svgCssName)
@@ -7935,10 +8163,16 @@
                 //custGeom here - Amir ///////////////////////////////////////////////////////
                 //http://officeopenxml.com/drwSp-custGeom.php
                 var pathLstNode = getTextByPathList(custShapType, ["a:pathLst"]);
-                var pathNodes = getTextByPathList(pathLstNode, ["a:path"]);
+                var pathNodeList = getTextByPathList(pathLstNode, ["a:path"]);
+                if (!pathNodeList) pathNodeList = [];
+                if (pathNodeList.constructor !== Array) pathNodeList = [pathNodeList];
+                for (var pathIndex = 0; pathIndex < pathNodeList.length; pathIndex++) {
+                var pathNodes = pathNodeList[pathIndex];
+                if (!pathNodes || !pathNodes["attrs"]) continue;
                 //var pathNode = getTextByPathList(pathLstNode, ["a:path", "attrs"]);
                 var maxX = parseInt(pathNodes["attrs"]["w"]);// * slideFactor;
                 var maxY = parseInt(pathNodes["attrs"]["h"]);// * slideFactor;
+                if (!maxX || !maxY) continue;
                 var cX = (1 / maxX) * w;
                 var cY = (1 / maxY) * h;
                 //console.log("w = "+w+"\nh = "+h+"\nmaxX = "+maxX +"\nmaxY = " + maxY);
@@ -7947,6 +8181,7 @@
                 //console.log("custShapType : ", custShapType, ", pathLstNode: ", pathLstNode, ", node: ", node);//, ", y:", y, ", w:", w, ", h:", h);
 
                 var moveToNode = getTextByPathList(pathNodes, ["a:moveTo"]);
+                if (moveToNode === undefined) continue;
                 var total_shapes = moveToNode.length;
 
                 var lnToNodes = pathNodes["a:lnTo"]; //total a:pt : 1
@@ -7969,9 +8204,10 @@
                             Object.keys(moveToPtNode).forEach(function (key2) {
                                 var ptObj = {};
                                 var moveToNoPt = moveToPtNode[key2];
-                                var spX = moveToNoPt["attrs", "x"];//parseInt(moveToNoPt["attrs", "x"]) * slideFactor;
-                                var spY = moveToNoPt["attrs", "y"];//parseInt(moveToNoPt["attrs", "y"]) * slideFactor;
-                                var ptOrdr = moveToNoPt["attrs", "order"];
+                                var moveAttrs = airdocsPtAttrs(moveToNoPt) || {};
+                                var spX = moveAttrs["x"];
+                                var spY = moveAttrs["y"];
+                                var ptOrdr = moveAttrs["order"];
                                 ptObj.type = "movto";
                                 ptObj.order = ptOrdr;
                                 ptObj.x = spX;
@@ -7984,15 +8220,19 @@
                     });
                     //a:lnTo
                     if (lnToNodes !== undefined) {
+                        if (!Array.isArray(lnToNodes)) {
+                            lnToNodes = [lnToNodes];
+                        }
                         Object.keys(lnToNodes).forEach(function (key) {
                             var lnToPtNode = lnToNodes[key]["a:pt"];
                             if (lnToPtNode !== undefined) {
                                 Object.keys(lnToPtNode).forEach(function (key2) {
                                     var ptObj = {};
                                     var lnToNoPt = lnToPtNode[key2];
-                                    var ptX = lnToNoPt["attrs", "x"];
-                                    var ptY = lnToNoPt["attrs", "y"];
-                                    var ptOrdr = lnToNoPt["attrs", "order"];
+                                    var lnAttrs = airdocsPtAttrs(lnToNoPt) || {};
+                                    var ptX = lnAttrs["x"];
+                                    var ptY = lnAttrs["y"];
+                                    var ptOrdr = lnAttrs["order"];
                                     ptObj.type = "lnto";
                                     ptObj.order = ptOrdr;
                                     ptObj.x = ptX;
@@ -8170,6 +8410,7 @@
                         "' stroke='" + ((border === undefined) ? "" : border.color) + "' stroke-width='" + ((border === undefined) ? "" : border.width) + "' stroke-dasharray='" + ((border === undefined) ? "" : border.strokeDasharray) + "' ";
                     result += "/>";
                     //console.log(result);
+                }
                 }
 
                 result += "</svg>";
@@ -8380,9 +8621,14 @@
             //console.log("processPicNode node:", node, "source:", source, "sType:", sType, "warpObj;", warpObj);
             var rtrnData = "";
             var mediaPicFlag = false;
-            var order = node["attrs"]["order"];
+            var order = node && node["attrs"] ? node["attrs"]["order"] : 0;
+            var xfrmNode = getTextByPathList(node, ["p:spPr", "a:xfrm"]);
 
-            var rid = node["p:blipFill"]["a:blip"]["attrs"]["r:embed"];
+            var rid = getTextByPathList(node, ["p:blipFill", "a:blip", "attrs", "r:embed"]);
+            if (!rid) {
+                airdocsLog("picture", "no embedded image");
+                return airdocsGrayFrame(xfrmNode, order);
+            }
             var resObj;
             if (source == "slideMasterBg") {
                 resObj = warpObj["masterResObj"];
@@ -8392,14 +8638,20 @@
                 //imgName = warpObj["slideResObj"][rid]["target"];
                 resObj = warpObj["slideResObj"];
             }
-            var imgName = resObj[rid]["target"];
+            var imgName = resObj && resObj[rid] ? resObj[rid]["target"] : "";
+            if (!imgName) {
+                airdocsLog("picture", "missing relationship " + rid);
+                return airdocsGrayFrame(xfrmNode, order);
+            }
 
             //console.log("processPicNode imgName:", imgName);
             var imgFileExt = extractFileExtension(imgName).toLowerCase();
             var zip = warpObj["zip"];
-            var imgArrayBuffer = zip.file(imgName).asArrayBuffer();
+            var pictureUrl = airdocsPictureUrl(zip, imgName, 2500000);
             var mimeType = "";
-            var xfrmNode = node["p:spPr"]["a:xfrm"];
+            if (xfrmNode === undefined && node && node["p:spPr"]) {
+                xfrmNode = node["p:spPr"]["a:xfrm"];
+            }
             if (xfrmNode === undefined) {
                 var idx = getTextByPathList(node, ["p:nvPicPr", "p:nvPr", "p:ph", "attrs", "idx"]);
                 var type = getTextByPathList(node, ["p:nvPicPr", "p:nvPr", "p:ph", "attrs", "type"]);
@@ -8422,15 +8674,16 @@
                 vdoFile = resObj[vdoRid]["target"];
                 var checkIfLink = IsVideoLink(vdoFile);
                 if (checkIfLink) {
-                    vdoFile = escapeHtml(vdoFile);
-                    //vdoBlob = vdoFile;
-                    isVdeoLink = true;
-                    mediaSupportFlag = true;
-                    mediaPicFlag = true;
+                    // Offline build: never embed a remote video URL.
+                    mediaSupportFlag = false;
+                    isVdeoLink = false;
                 } else {
                     vdoFileExt = extractFileExtension(vdoFile).toLowerCase();
                     if (vdoFileExt == "mp4" || vdoFileExt == "webm" || vdoFileExt == "ogg") {
-                        uInt8Array = zip.file(vdoFile).asArrayBuffer();
+                        uInt8Array = airdocsDecodeMedia(zip.file(vdoFile), 1024 * 1024);
+                        if (!uInt8Array) {
+                            mediaSupportFlag = false;
+                        } else {
                         vdoMimeType = getMimeType(vdoFileExt);
                         blob = new Blob([uInt8Array], {
                             type: vdoMimeType
@@ -8438,6 +8691,7 @@
                         vdoBlob = URL.createObjectURL(blob);
                         mediaSupportFlag = true;
                         mediaPicFlag = true;
+                        }
                     }
                 }
             }
@@ -8451,7 +8705,10 @@
                 audioFile = resObj[audioRid]["target"];
                 audioFileExt = extractFileExtension(audioFile).toLowerCase();
                 if (audioFileExt == "mp3" || audioFileExt == "wav" || audioFileExt == "ogg") {
-                    uInt8ArrayAudio = zip.file(audioFile).asArrayBuffer();
+                    uInt8ArrayAudio = airdocsDecodeMedia(zip.file(audioFile), 1024 * 1024);
+                    if (!uInt8ArrayAudio) {
+                        mediaSupportFlag = false;
+                    } else {
                     blobAudio = new Blob([uInt8ArrayAudio]);
                     audioBlob = URL.createObjectURL(blobAudio);
                     var cx = parseInt(xfrmNode["a:ext"]["attrs"]["cx"]) * 20;
@@ -8476,6 +8733,7 @@
                     audioPlayerFlag = true;
                     mediaSupportFlag = true;
                     mediaPicFlag = true;
+                    }
                 }
             }
             //console.log(node)
@@ -8487,7 +8745,11 @@
                 " z-index: " + order + ";" +
                 "transform: rotate(" + rotate + "deg);'>";
             if ((vdoNode === undefined && audioNode === undefined) || !mediaProcess || !mediaSupportFlag) {
-                rtrnData += "<img src='data:" + mimeType + ";base64," + base64ArrayBuffer(imgArrayBuffer) + "' style='width: 100%; height: 100%'/>";
+                if (!pictureUrl) {
+                    rtrnData += "<div style='width: 100%; height: 100%; background:#d9d9d9;'></div>";
+                } else {
+                    rtrnData += "<img src='" + pictureUrl + "' style='width: 100%; height: 100%'/>";
+                }
             } else if ((vdoNode !== undefined || audioNode !== undefined) && mediaProcess && mediaSupportFlag) {
                 if (vdoNode !== undefined && !isVdeoLink) {
                     rtrnData += "<video  src='" + vdoBlob + "' controls style='width: 100%; height: 100%'>Your browser does not support the video tag.</video>";
@@ -8582,6 +8844,9 @@
             //var lstStyle = textBodyNode["a:lstStyle"];
             
             var apNode = textBodyNode["a:p"];
+            if (apNode === undefined) {
+                return text;
+            }
             if (apNode.constructor !== Array) {
                 apNode = [apNode];
             }
@@ -9151,10 +9416,10 @@
                     //buPicId = getTextByPathList(buPic, ["a:blip", "attrs", "r:embed"]);
                     var imgPath = warpObj["slideResObj"][buPicId]["target"];
                     //console.log("imgPath: ", imgPath);
-                    var imgArrayBuffer = warpObj["zip"].file(imgPath).asArrayBuffer();
-                    var imgExt = imgPath.split(".").pop();
-                    var imgMimeType = getMimeType(imgExt);
-                    buImg = "<img src='data:" + imgMimeType + ";base64," + base64ArrayBuffer(imgArrayBuffer) + "' style='width: 100%;'/>"// height: 100%
+                    var bulletUrl = airdocsPictureUrl(warpObj["zip"], imgPath, 2500000);
+                    buImg = bulletUrl
+                        ? "<img src='" + bulletUrl + "' style='width: 100%;'/>"
+                        : "&#8227;";
                     //console.log("imgPath: "+imgPath+"\nimgMimeType: "+imgMimeType)
                 }
                 if (buPicId === undefined) {
@@ -10227,16 +10492,34 @@
 
         function genChart(node, warpObj) {
 
-            var order = node["attrs"]["order"];
+            var order = node && node["attrs"] ? node["attrs"]["order"] : 0;
             var xfrmNode = getTextByPathList(node, ["p:xfrm"]);
-            var result = "<div id='chart" + chartID + "' class='block content' style='" +
-                getPosition(xfrmNode, node, undefined, undefined) + getSize(xfrmNode, undefined, undefined) +
-                " z-index: " + order + ";'></div>";
-
-            var rid = node["a:graphic"]["a:graphicData"]["c:chart"]["attrs"]["r:id"];
-            var refName = warpObj["slideResObj"][rid]["target"];
+            var rid = getTextByPathList(node, ["a:graphic", "a:graphicData", "c:chart", "attrs", "r:id"]);
+            var chartRel = rid && warpObj["slideResObj"] ? warpObj["slideResObj"][rid] : null;
+            if (!chartRel || !chartRel["target"]) {
+                airdocsLog("chart", "chart part was not included");
+                return airdocsGrayFrame(xfrmNode, order);
+            }
+            var refName = chartRel["target"];
             var content = readXmlFile(warpObj["zip"], refName);
+            // Chart workbooks are not paged into the WebView. The slide stays.
+            if (!content) {
+                airdocsLog("chart", "chart xml missing " + refName);
+                return airdocsGrayFrame(xfrmNode, order);
+            }
             var plotArea = getTextByPathList(content, ["c:chartSpace", "c:chart", "c:plotArea"]);
+            var result = "";
+            try {
+                result = "<div id='chart" + chartID + "' class='block content' style='" +
+                    getPosition(xfrmNode, node, undefined, undefined) + getSize(xfrmNode, undefined, undefined) +
+                    " z-index: " + order + ";background:#d9d9d9;'></div>";
+            } catch (boxErr) {
+                airdocsLog("chart box", boxErr);
+                result = airdocsGrayFrame(xfrmNode, order);
+            }
+            if (!plotArea) {
+                return result;
+            }
 
             var chartData = null;
             for (var key in plotArea) {
@@ -10328,19 +10611,31 @@
              * 5-drawing#.xml, which Microsoft added as an extension for persisting diagram layout information.
              */
             ///get colors#.xml, data#.xml , layout#.xml , quickStyle#.xml
-            var order = node["attrs"]["order"];
+            var order = node && node["attrs"] ? node["attrs"]["order"] : 0;
             var zip = warpObj["zip"];
             var xfrmNode = getTextByPathList(node, ["p:xfrm"]);
             var dgmRelIds = getTextByPathList(node, ["a:graphic", "a:graphicData", "dgm:relIds", "attrs"]);
+            if (!dgmRelIds || !warpObj["slideResObj"]) {
+                airdocsLog("diagram", "diagram parts were not included");
+                return airdocsGrayFrame(xfrmNode, order);
+            }
             //console.log(dgmRelIds)
             var dgmClrFileId = dgmRelIds["r:cs"];
             var dgmDataFileId = dgmRelIds["r:dm"];
             var dgmLayoutFileId = dgmRelIds["r:lo"];
             var dgmQuickStyleFileId = dgmRelIds["r:qs"];
-            var dgmClrFileName = warpObj["slideResObj"][dgmClrFileId].target,
-                dgmDataFileName = warpObj["slideResObj"][dgmDataFileId].target,
-                dgmLayoutFileName = warpObj["slideResObj"][dgmLayoutFileId].target;
-            dgmQuickStyleFileName = warpObj["slideResObj"][dgmQuickStyleFileId].target;
+            function airdocsDiagramTarget(relId) {
+                var rel = relId ? warpObj["slideResObj"][relId] : null;
+                return rel && rel.target ? rel.target : "";
+            }
+            var dgmClrFileName = airdocsDiagramTarget(dgmClrFileId);
+            var dgmDataFileName = airdocsDiagramTarget(dgmDataFileId);
+            var dgmLayoutFileName = airdocsDiagramTarget(dgmLayoutFileId);
+            var dgmQuickStyleFileName = airdocsDiagramTarget(dgmQuickStyleFileId);
+            if (!dgmClrFileName || !dgmDataFileName || !dgmLayoutFileName || !dgmQuickStyleFileName) {
+                airdocsLog("diagram", "diagram relationship missing");
+                return airdocsGrayFrame(xfrmNode, order);
+            }
             //console.log("dgmClrFileName: " , dgmClrFileName,", dgmDataFileName: ",dgmDataFileName,", dgmLayoutFileName: ",dgmLayoutFileName,", dgmQuickStyleFileName: ",dgmQuickStyleFileName);
             var dgmClr = readXmlFile(zip, dgmClrFileName);
             var dgmData = readXmlFile(zip, dgmDataFileName);
@@ -11401,7 +11696,7 @@
 
             if (bType == "shape") {
                 cssText = "border: ";
-                lineNode = node["p:spPr"]["a:ln"];
+                lineNode = node && node["p:spPr"] ? node["p:spPr"]["a:ln"] : undefined;
                 //subNodeTxt = "p:spPr";
                 //node["p:style"]["a:lnRef"] = 
             } else if (bType == "text") {
@@ -11413,16 +11708,25 @@
             //var is_noFill = getTextByPathList(node, ["p:spPr", "a:noFill"]);
             var is_noFill = getTextByPathList(lineNode, ["a:noFill"]);
             if (is_noFill !== undefined) {
+                if (isSvgMode) {
+                    return { "color": "none", "width": 0, "type": "none", "strokeDasharray": "0" };
+                }
                 return "hidden";
             }
 
             //console.log("lineNode: ", lineNode)
             if (lineNode == undefined) {
                 var lnRefNode = getTextByPathList(node, ["p:style", "a:lnRef"])
-                if (lnRefNode !== undefined){
-                    var lnIdx = getTextByPathList(lnRefNode, ["attrs", "idx"]);
-                    //console.log("lnIdx:", lnIdx, "lnStyleLst:", warpObj["themeContent"]["a:theme"]["a:themeElements"]["a:fmtScheme"]["a:lnStyleLst"]["a:ln"][Number(lnIdx) -1])
-                    lineNode = warpObj["themeContent"]["a:theme"]["a:themeElements"]["a:fmtScheme"]["a:lnStyleLst"]["a:ln"][Number(lnIdx) - 1];
+                if (lnRefNode !== undefined && warpObj && warpObj["themeContent"]) {
+                    try {
+                        var lnIdx = getTextByPathList(lnRefNode, ["attrs", "idx"]);
+                        var lnList = getTextByPathList(warpObj["themeContent"], ["a:theme", "a:themeElements", "a:fmtScheme", "a:lnStyleLst", "a:ln"]);
+                        if (lnList) {
+                            lineNode = lnList.constructor === Array ? lnList[Number(lnIdx) - 1] : lnList;
+                        }
+                    } catch (lnErr) {
+                        airdocsLog("theme line", lnErr);
+                    }
                 }
             }
             if (lineNode == undefined) {
@@ -11552,6 +11856,7 @@
             cssText += " " + borderColor + " ";//wrong if not solid fill - TODO
 
             if (isSvgMode) {
+                if (isNaN(borderWidth)) borderWidth = 0;
                 return { "color": borderColor, "width": borderWidth, "type": borderType, "strokeDasharray": strokeDasharray };
             } else {
                 return cssText + ";";
@@ -12343,17 +12648,15 @@
             }
             img = getTextByPathList(warpObj, ["loaded-images", imgPath]); //, type, rId
             if (img === undefined) {
-                imgPath = escapeHtml(imgPath);
-
-
-                var imgExt = imgPath.split(".").pop();
+                var rawPath = imgPath;
+                var imgExt = rawPath.split(".").pop();
                 if (imgExt == "xml") {
                     return undefined;
                 }
-                var imgArrayBuffer = warpObj["zip"].file(imgPath).asArrayBuffer();
-                var imgMimeType = getMimeType(imgExt);
-                img = "data:" + imgMimeType + ";base64," + base64ArrayBuffer(imgArrayBuffer);
-                //warpObj["loaded-images"][imgPath] = img; //"defaultTextStyle": defaultTextStyle,
+                img = airdocsPictureUrl(warpObj["zip"], rawPath, 2500000);
+                if (!img) {
+                    return undefined;
+                }
                 setTextByPathList(warpObj, ["loaded-images", imgPath], img); //, type, rId
             }
             return img;
@@ -13262,18 +13565,18 @@
          */
         function getTextByPathList(node, path) {
 
-            if (path.constructor !== Array) {
-                throw Error("Error of path type! path is not array.");
+            if (!path || path.constructor !== Array) {
+                return undefined;
             }
 
-            if (node === undefined) {
+            if (node === undefined || node === null) {
                 return undefined;
             }
 
             var l = path.length;
             for (var i = 0; i < l; i++) {
                 node = node[path[i]];
-                if (node === undefined) {
+                if (node === undefined || node === null) {
                     return undefined;
                 }
             }
@@ -13782,7 +14085,11 @@
 
         function processMsgQueue(queue) {
             for (var i = 0; i < queue.length; i++) {
-                processSingleMsg(queue[i].data);
+                try {
+                    processSingleMsg(queue[i].data);
+                } catch (chartErr) {
+                    airdocsLog("chart draw", chartErr);
+                }
             }
         }
 

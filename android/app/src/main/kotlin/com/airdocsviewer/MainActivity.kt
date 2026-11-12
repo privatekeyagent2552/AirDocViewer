@@ -63,11 +63,37 @@ class MainActivity : FlutterActivity() {
 
     /** One heavy job at a time so POI, PDFBox, and bitmaps cannot stack to the 512MB heap. */
     private fun succeed(result: MethodChannel.Result, value: Any?) {
-        runOnUiThread { result.success(value) }
+        runOnUiThread {
+            try {
+                result.success(value)
+            } catch (t: Throwable) {
+                Log.e(TAG, "result.success failed", t)
+                try {
+                    result.error("PDF_ERROR", "This file could not be opened.", null)
+                } catch (_: Throwable) {
+                }
+            }
+        }
     }
 
     private fun fail(result: MethodChannel.Result, code: String, message: String?) {
-        runOnUiThread { result.error(code, message, null) }
+        runOnUiThread {
+            try {
+                result.error(code, message, null)
+            } catch (t: Throwable) {
+                Log.e(TAG, "result.error failed", t)
+            }
+        }
+    }
+
+    private fun pdfFailureMessage(t: Throwable): String {
+        val oom = generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+        val text = t.message.orEmpty()
+        return if (oom || text.contains("too large", ignoreCase = true)) {
+            "This file is too large to open completely on this device."
+        } else {
+            "This file could not be opened."
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -124,13 +150,126 @@ class MainActivity : FlutterActivity() {
                                     android.app.Activity::class.java)
                                 method.invoke(parserInstance, filePath, format, maxRows, maxCols, maxSheets, result, this@MainActivity)
                             }
+                            "readPptxSlide", "readPptSlide" -> {
+                                val filePath = call.argument<String>("filePath")
+                                if (filePath == null ||
+                                    !SecurityUtils.isSafeReadablePath(filePath, packageName)
+                                ) {
+                                    runOnUiThread {
+                                        result.error(
+                                            "SECURITY_ERROR",
+                                            "Unsupported or unsafe file path",
+                                            null,
+                                        )
+                                    }
+                                    return@execute
+                                }
+                                val parserClass = Class.forName("com.airdocsviewer.NativeDocumentParser")
+                                val parserInstance = parserClass
+                                    .getConstructor(String::class.java)
+                                    .newInstance(TAG)
+                                if (call.method == "readPptxSlide") {
+                                    val method = parserClass.getDeclaredMethod(
+                                        "handleReadPptxSlide",
+                                        String::class.java,
+                                        Int::class.javaObjectType,
+                                        String::class.java,
+                                        String::class.java,
+                                        MethodChannel.Result::class.java,
+                                        android.app.Activity::class.java,
+                                    )
+                                    method.invoke(
+                                        parserInstance,
+                                        filePath,
+                                        call.argument<Int>("index") ?: 0,
+                                        call.argument<String>("mediaDir"),
+                                        call.argument<String>("packagePath"),
+                                        result,
+                                        this@MainActivity,
+                                    )
+                                } else {
+                                    val method = parserClass.getDeclaredMethod(
+                                        "handleReadPptSlide",
+                                        String::class.java,
+                                        Int::class.javaObjectType,
+                                        MethodChannel.Result::class.java,
+                                        android.app.Activity::class.java,
+                                    )
+                                    method.invoke(
+                                        parserInstance,
+                                        filePath,
+                                        call.argument<Int>("index") ?: 0,
+                                        result,
+                                        this@MainActivity,
+                                    )
+                                }
+                            }
+                            "readSheetWindow" -> {
+                                val filePath = call.argument<String>("filePath")
+                                if (filePath == null ||
+                                    !SecurityUtils.isSafeReadablePath(filePath, packageName)
+                                ) {
+                                    runOnUiThread {
+                                        result.error(
+                                            "SECURITY_ERROR",
+                                            "Unsupported or unsafe file path",
+                                            null,
+                                        )
+                                    }
+                                    return@execute
+                                }
+                                val parserClass = Class.forName("com.airdocsviewer.NativeDocumentParser")
+                                val parserInstance = parserClass
+                                    .getConstructor(String::class.java)
+                                    .newInstance(TAG)
+                                val method = parserClass.getDeclaredMethod(
+                                    "handleReadSheetWindow",
+                                    String::class.java,
+                                    String::class.java,
+                                    Int::class.javaObjectType,
+                                    Int::class.javaObjectType,
+                                    Int::class.javaObjectType,
+                                    Int::class.javaObjectType,
+                                    Int::class.javaObjectType,
+                                    MethodChannel.Result::class.java,
+                                    android.app.Activity::class.java,
+                                )
+                                method.invoke(
+                                    parserInstance,
+                                    filePath,
+                                    call.argument<String>("format"),
+                                    call.argument<Int>("sheetIndex") ?: 0,
+                                    call.argument<Int>("startRow") ?: 0,
+                                    call.argument<Int>("rowCount") ?: 200,
+                                    call.argument<Int>("startCol") ?: 0,
+                                    call.argument<Int>("colCount") ?: 30,
+                                    result,
+                                    this@MainActivity,
+                                )
+                            }
                             "isAvailable" -> runOnUiThread { result.success(true) }
                             else -> runOnUiThread { result.notImplemented() }
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Reflection load failed", e)
-                        logCauseChain("Reflection load failed", e)
-                        runOnUiThread { result.error("REFLECTION_ERROR", e.message, null) }
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Reflection load failed", t)
+                        logCauseChain("Reflection load failed", t)
+                        val oom = generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+                        val message = if (oom) {
+                            "This file is too large to open completely on this device."
+                        } else {
+                            "This file could not be opened."
+                        }
+                        runOnUiThread {
+                            try {
+                                result.error(
+                                    if (oom) "PARSE_ERROR" else "REFLECTION_ERROR",
+                                    message,
+                                    null,
+                                )
+                            } catch (replyFailure: Throwable) {
+                                Log.e(TAG, "result.error failed", replyFailure)
+                            }
+                        }
                     }
                 }
             }
@@ -177,8 +316,18 @@ class MainActivity : FlutterActivity() {
                                     result,
                                     this@MainActivity,
                                 )
-                            } catch (e: Exception) {
-                                fail(result, "REFLECTION_ERROR", e.message)
+                            } catch (t: Throwable) {
+                                val oom = generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+                                Log.e(TAG, "extractPageText failed", t)
+                                fail(
+                                    result,
+                                    if (oom) "PDF_ERROR" else "REFLECTION_ERROR",
+                                    if (oom) {
+                                        "This page has too much text to extract on this device."
+                                    } else {
+                                        "This file could not be opened."
+                                    },
+                                )
                             }
                         }
                         "extractTextWithPositions" -> {
@@ -199,8 +348,18 @@ class MainActivity : FlutterActivity() {
                                     result,
                                     this@MainActivity,
                                 )
-                            } catch (e: Exception) {
-                                fail(result, "REFLECTION_ERROR", e.message)
+                            } catch (t: Throwable) {
+                                val oom = generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+                                Log.e(TAG, "extractTextWithPositions failed", t)
+                                fail(
+                                    result,
+                                    if (oom) "PDF_ERROR" else "REFLECTION_ERROR",
+                                    if (oom) {
+                                        "This page has too much text to extract on this device."
+                                    } else {
+                                        "This file could not be opened."
+                                    },
+                                )
                             }
                         }
                         "getPageSize" -> getPageSize(call.argument("filePath"), call.argument("pageNumber") ?: 0, result)
@@ -254,9 +413,23 @@ class MainActivity : FlutterActivity() {
                             } else {
                                 runOnUiThread { result.error("EXTRACTION_FAILED", "Failed to extract video frame", null) }
                             }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Video frame extraction failed", e)
-                            runOnUiThread { result.error("EXTRACTION_ERROR", e.message, null) }
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Video frame extraction failed", t)
+                            val oom = generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+                            runOnUiThread {
+                                try {
+                                    result.error(
+                                        if (oom) "PARSE_ERROR" else "EXTRACTION_ERROR",
+                                        if (oom) {
+                                            "This file is too large to open completely on this device."
+                                        } else {
+                                            "This file could not be opened."
+                                        },
+                                        null,
+                                    )
+                                } catch (_: Throwable) {
+                                }
+                            }
                         }
                     }
                     else -> result.notImplemented()
@@ -271,8 +444,8 @@ class MainActivity : FlutterActivity() {
             val bitmap = retriever.getFrameAtTime(timeUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST)
             retriever.release()
             bitmap
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to extract video frame from $filePath", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to extract video frame from $filePath", t)
             null
         }
     }
@@ -502,8 +675,8 @@ class MainActivity : FlutterActivity() {
 
             Log.i(TAG, "Imported content URI to managed storage")
             finalFile.absolutePath
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to import content URI to managed storage", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to import content URI to managed storage", t)
             null
         }
     }
@@ -596,9 +769,9 @@ class MainActivity : FlutterActivity() {
             pdfDescriptors[filePath] = descriptor
             pdfRenderers[filePath] = renderer
             succeed(result, mapOf("pageCount" to renderer.pageCount, "filePath" to filePath))
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening PDF", e)
-            fail(result, "PDF_ERROR", e.message)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error opening PDF", t)
+            fail(result, "PDF_ERROR", pdfFailureMessage(t))
         }
     }
 
@@ -610,9 +783,9 @@ class MainActivity : FlutterActivity() {
             pdfRenderers.remove(filePath)
             pdfDescriptors.remove(filePath)
             succeed(result, true)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error closing PDF", e)
-            fail(result, "PDF_ERROR", e.message)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error closing PDF", t)
+            fail(result, "PDF_ERROR", pdfFailureMessage(t))
         }
     }
 
@@ -661,22 +834,34 @@ class MainActivity : FlutterActivity() {
                     "pageNumber" to pageNumber,
                 ),
             )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error rendering PDF page", e)
-            fail(result, "PDF_RENDER_ERROR", e.message)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error rendering PDF page", t)
+            val oom = generateSequence(t) { it.cause }.any { it is OutOfMemoryError }
+            fail(
+                result,
+                "PDF_RENDER_ERROR",
+                if (oom) {
+                    "This page is too large to draw on this device."
+                } else {
+                    "This file could not be opened."
+                },
+            )
         } finally {
             try {
                 page?.close()
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
-            bitmap?.recycle()
+            try {
+                bitmap?.recycle()
+            } catch (_: Throwable) {
+            }
             try {
                 renderer?.close()
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
             try {
                 descriptor?.close()
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
         }
     }
@@ -701,9 +886,9 @@ class MainActivity : FlutterActivity() {
             val height = page.height
             page.close()
             succeed(result, mapOf("width" to width, "height" to height))
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting page size", e)
-            fail(result, "PDF_ERROR", e.message)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error getting page size", t)
+            fail(result, "PDF_ERROR", pdfFailureMessage(t))
         }
     }
 
@@ -718,9 +903,9 @@ class MainActivity : FlutterActivity() {
             renderer.close()
             descriptor.close()
             succeed(result, count)
-        } catch (e: Exception) {
-            Log.e(TAG, "PDF page count error", e)
-            fail(result, "PDF_ERROR", e.message)
+        } catch (t: Throwable) {
+            Log.e(TAG, "PDF page count error", t)
+            fail(result, "PDF_ERROR", pdfFailureMessage(t))
         }
     }
 

@@ -952,6 +952,8 @@
   "viewerNotNow": "अभी नहीं",
   "viewerGotIt": "समझ गया",
   "viewerErrorLoadingDocument": "خطأ في تحميل المستند",
+  "viewerFileOpenFailed": "यह फ़ाइल नहीं खोली जा सकी। यह क्षतिग्रस्त या असमर्थित हो सकती है।",
+  "viewerFileTooLarge": "यह फ़ाइल इस डिवाइस पर खोलने के लिए बहुत बड़ी है।",
   "viewerGoBack": "वापस जाएँ",
   "viewerReadingTimeMinutes": "{count, plural, =1{قراءة دقيقة واحدة} other{قراءة {count} دقائق}}",
   "@viewerReadingTimeMinutes": {

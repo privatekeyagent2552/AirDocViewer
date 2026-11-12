@@ -93,6 +93,85 @@ class MethodChannelService implements PlatformChannelService {
     }
   }
 
+  /// One PPTX slide: XML package path plus the picture files that slide uses.
+  /// Does not return the rest of the deck.
+  Future<Map<String, dynamic>> readPptxSlide({
+    required String filePath,
+    required int index,
+    required String mediaDir,
+    required String packagePath,
+  }) {
+    return _invokeMap('readPptxSlide', {
+      'filePath': filePath,
+      'index': index,
+      'mediaDir': mediaDir,
+      'packagePath': packagePath,
+    });
+  }
+
+  /// One rectangle of one Excel sheet. Does not return the rest of the grid.
+  Future<Map<String, dynamic>> readSheetWindow({
+    required String filePath,
+    required String format,
+    required int sheetIndex,
+    required int startRow,
+    required int rowCount,
+    required int startCol,
+    required int colCount,
+  }) {
+    return _invokeMap('readSheetWindow', {
+      'filePath': filePath,
+      'format': format,
+      'sheetIndex': sheetIndex,
+      'startRow': startRow,
+      'rowCount': rowCount,
+      'startCol': startCol,
+      'colCount': colCount,
+    });
+  }
+
+  /// One legacy .ppt slide of text. Does not return the other slides.
+  Future<Map<String, dynamic>> readPptSlide({
+    required String filePath,
+    required int index,
+  }) {
+    return _invokeMap('readPptSlide', {
+      'filePath': filePath,
+      'index': index,
+    });
+  }
+
+  Future<Map<String, dynamic>> _invokeMap(
+    String method,
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        method,
+        args,
+      );
+      if (result == null) {
+        throw PlatformChannelException(
+          message: 'Native parser returned null',
+          code: 'NULL_RESULT',
+        );
+      }
+      return _convertDynamicToTyped(result) as Map<String, dynamic>;
+    } on PlatformException catch (e) {
+      throw PlatformChannelException(
+        message: e.message ?? 'Unknown platform error',
+        code: e.code,
+        originalError: e,
+      );
+    } catch (e) {
+      if (e is PlatformChannelException) rethrow;
+      throw PlatformChannelException(
+        message: 'Unexpected error during native parsing',
+        originalError: e,
+      );
+    }
+  }
+
   /// Recursively convert Map with dynamic type params to Map with String keys
   /// and List with dynamic elements with proper type handling
   dynamic _convertDynamicToTyped(dynamic value) {
