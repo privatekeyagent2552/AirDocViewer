@@ -67,7 +67,7 @@
   "startBrowsing": "ابدأ التصفح",
   "languageChanged": "تم تغيير اللغة إلى العربية",
   "privacyDescription": "Air Docs Viewer عارض مستندات. تُحفظ ملفاتك محلياً على جهازك ولا تُرسل أبداً إلى أي خادم.",
-  "aboutDescription": "Air Docs Viewer v1.0.0 - عارض مستندات خاص بك. بناؤه باحترام خصوصيتك.",
+  "aboutDescription": "Air Docs Viewer v1.0.1 - عارض مستندات خاص بك. بناؤه باحترام خصوصيتك.",
   "tableRows": "صفوف",
   "tableEmpty": "لا توجد بيانات للعرض",
   "tableNoContent": "الورقة فارغة",

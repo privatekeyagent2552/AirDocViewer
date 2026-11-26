@@ -67,7 +67,7 @@
   "startBrowsing": "开始浏览",
   "languageChanged": "语言已更改为中文",
   "privacyDescription": "Air Docs Viewer 是一款文档查看器。您的文件会本地保存在设备上，绝不会传输到任何服务器。",
-  "aboutDescription": "Air Docs Viewer v1.0.0 - 您的私人文档查看器。以尊重您的隐私为原则构建。",
+  "aboutDescription": "Air Docs Viewer v1.0.1 - 您的私人文档查看器。以尊重您的隐私为原则构建。",
   "tableRows": "行",
   "tableEmpty": "没有要显示的数据",
   "tableNoContent": "工作表为空",

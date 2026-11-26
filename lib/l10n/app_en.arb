@@ -67,7 +67,7 @@
   "startBrowsing": "Start Browsing",
   "languageChanged": "Language changed to English",
   "privacyDescription": "Air Docs Viewer is a document viewer. Your files are stored locally on your device and are never transmitted to any server.",
-  "aboutDescription": "Air Docs Viewer v1.0.0 - Your private document viewer. Built to respect your privacy.",
+  "aboutDescription": "Air Docs Viewer v1.0.3 - Your private document viewer. Built to respect your privacy.",
   "tableRows": "rows",
   "tableEmpty": "No data to display",
   "tableNoContent": "Sheet is empty",
@@ -538,6 +538,23 @@
   "viewerPptTextOnly": "Text only. This legacy PowerPoint file does not include the original colors or pictures.",
   "viewerNoSlideText": "No text on this slide.",
   "viewerNoSlides": "This presentation has no slides.",
+  "viewerOpeningDocument": "Opening document...",
+  "viewerWordTextOnly": "Text only. Pictures in this Word file are not shown.",
+  "viewerWordWindowRange": "Paragraphs {start}–{end}",
+  "@viewerWordWindowRange": {
+    "placeholders": {
+      "start": {
+        "type": "int"
+      },
+      "end": {
+        "type": "int"
+      }
+    }
+  },
+  "viewerWordPrevious": "Previous section",
+  "viewerWordNext": "Next section",
+  "viewerWordSectionSkipped": "A very large section was skipped.",
+  "viewerWordNoText": "This document has no text.",
   "viewerSheetWindowRange": "Rows {rowStart}–{rowEnd}, columns {colStart}–{colEnd}",
   "@viewerSheetWindowRange": {
     "placeholders": {

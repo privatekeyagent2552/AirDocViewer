@@ -130,7 +130,8 @@ abstract final class SupportedFormats {
   static const csv = FormatSpec(
     extension: 'csv',
     viewerKind: ViewerKind.spreadsheet,
-    openStrategy: OpenStrategy.parserFirst,
+    // The grid is read one window at a time. A full parse is not kept.
+    openStrategy: OpenStrategy.direct,
     category: 'spreadsheets',
   );
 

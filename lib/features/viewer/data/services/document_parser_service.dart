@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/txt_window_reader.dart';
 import 'package:air_docs_viewer/features/viewer/data/services/word_document_parser_service.dart';
 import 'package:xml/xml.dart';
 import 'package:logger/logger.dart';
@@ -24,8 +25,8 @@ class DocumentParserService {
     );
   }
 
-  /// Parse CSV format
-  /// Returns a single sheet structure
+  /// Capped thumbnail preview. The document viewer pages CSV from disk
+  /// and does not call this.
   static Future<Map<String, dynamic>> parseCSV(String filePath) async {
     try {
       log.i('Parsing CSV file: $filePath');
@@ -467,8 +468,17 @@ class DocumentParserService {
     }
   }
 
-  /// Parse TXT format - Plain text file
-  /// Returns text content with proper encoding handling and large file support
+  /// A `.txt` larger than one viewer window is paged from disk.
+  /// Callers must not cache or display that file as a single string.
+  static Future<bool> txtNeedsWindow(String filePath) async {
+    if (!filePath.toLowerCase().endsWith('.txt')) return false;
+    final length = await File(filePath).length();
+    return length > TxtWindowReader.windowBytes;
+  }
+
+  /// Parse TXT format - Plain text file.
+  /// Files that fit in one window are returned whole. A larger `.txt` is not
+  /// loaded here; this returns a short prefix for thumbnails only.
   static Future<String> parseTXT(String filePath) async {
     try {
       log.i('Parsing TXT file: $filePath');
@@ -480,11 +490,24 @@ class DocumentParserService {
 
       final fileSizeBytes = await file.length();
       final fileSizeMB = fileSizeBytes / (1024 * 1024);
+      final isTxt = filePath.toLowerCase().endsWith('.txt');
 
-      // For very large files (>50MB), read a preview to prevent memory issues
+      if (isTxt && fileSizeBytes > TxtWindowReader.windowBytes) {
+        log.i(
+          'TXT is ${fileSizeMB.toStringAsFixed(1)} MB; not loading it as one string',
+        );
+        final window = await TxtWindowReader.read(
+          filePath: filePath,
+          byteOffset: 0,
+          maxBytes: 64 * 1024,
+        );
+        return window.text;
+      }
+
+      // Other text extensions that share this parser stay on the old preview.
       const maxPreviewSizeMB = 50;
-      if (fileSizeMB > maxPreviewSizeMB) {
-        log.w('Large TXT file detected: $fileSizeMB MB. Reading preview only.');
+      if (!isTxt && fileSizeMB > maxPreviewSizeMB) {
+        log.w('Large text file detected: $fileSizeMB MB. Reading preview only.');
         final bytes =
             await file.openRead(0, maxPreviewSizeMB * 1024 * 1024).toList();
         final combinedBytes = <int>[];
@@ -493,14 +516,13 @@ class DocumentParserService {
         }
 
         try {
-          // Try UTF-8 first
           var content = utf8.decode(combinedBytes, allowMalformed: true);
           content +=
               '\n\n[Preview truncated - file is ${fileSizeMB.toStringAsFixed(1)} MB]';
-          log.i('TXT preview extracted: ${content.length} characters');
+          log.i('Text preview extracted: ${content.length} characters');
           return content;
         } catch (e) {
-          log.e('Error decoding TXT preview: $e');
+          log.e('Error decoding text preview: $e');
           rethrow;
         }
       }

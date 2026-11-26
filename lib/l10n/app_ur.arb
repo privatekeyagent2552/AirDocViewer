@@ -67,7 +67,7 @@
   "startBrowsing": "براؤز کرنا شروع کریں",
   "languageChanged": "زبان اردو میں تبدیل ہو گئی",
   "privacyDescription": "Air Docs Viewer ایک دستاویز ویور ہے۔ آپ کی فائلیں آپ کی ڈیوائس پر مقامی طور پر محفوظ ہیں اور کسی سرور کو ہرگز منتقل نہیں کی جاتی۔",
-  "aboutDescription": "Air Docs Viewer v1.0.0 - آپ کا نجی دستاویز ویور۔ آپ کی رازداری کو احترام دینے کے لیے بنایا گیا۔",
+  "aboutDescription": "Air Docs Viewer v1.0.3 - آپ کا نجی دستاویز ویور۔ آپ کی رازداری کو احترام دینے کے لیے بنایا گیا۔",
   "tableRows": "قطاریں",
   "tableEmpty": "کوئی ڈیٹا نہیں",
   "tableNoContent": "شیٹ خالی ہے",
@@ -962,6 +962,23 @@
   "viewerPptTextOnly": "صرف متن۔ یہ پرانی پاورپوائنٹ فائل اصل رنگ اور تصاویر شامل نہیں کرتی۔",
   "viewerNoSlideText": "اس سلائیڈ پر کوئی متن نہیں۔",
   "viewerNoSlides": "اس پریزنٹیشن میں کوئی سلائیڈ نہیں۔",
+  "viewerOpeningDocument": "دستاویز کھولی جا رہی ہے...",
+  "viewerWordTextOnly": "صرف متن۔ اس ورڈ فائل کی تصاویر نہیں دکھائی جاتیں۔",
+  "viewerWordWindowRange": "پیراگراف {start}–{end}",
+  "@viewerWordWindowRange": {
+    "placeholders": {
+      "start": {
+        "type": "int"
+      },
+      "end": {
+        "type": "int"
+      }
+    }
+  },
+  "viewerWordPrevious": "پچھلا حصہ",
+  "viewerWordNext": "اگلا حصہ",
+  "viewerWordSectionSkipped": "ایک بہت بڑا حصہ چھوڑ دیا گیا۔",
+  "viewerWordNoText": "اس دستاویز میں کوئی متن نہیں۔",
   "viewerSheetWindowRange": "قطاریں {rowStart}–{rowEnd}، کالم {colStart}–{colEnd}",
   "viewerGoBack": "واپس جائیں",
   "viewerReadingTimeMinutes": "{count, plural, =1{1 منٹ پڑھیں} other{{count} منٹ پڑھیں}}",

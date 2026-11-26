@@ -343,6 +343,20 @@ class DocumentParsingRepositoryImpl implements DocumentParsingRepository {
 
   @override
   Future<ParsedDocumentEntity> parseTXT(String filePath) async {
+    // A large .txt is paged by the viewer. Do not read, cache, or return a
+    // single string for it (an older cache may hold the old 50 MB preview).
+    if (await DocumentParserService.txtNeedsWindow(filePath)) {
+      log.i('TXT opens by window: $filePath');
+      return ParsedDocumentEntity(
+        format: 'TXT',
+        sheets: const [],
+        sheetCount: 0,
+        parsedAt: DateTime.now(),
+        sourceFilePath: filePath,
+        fidelityLevel: DocumentFidelityLevel.plainText,
+      );
+    }
+
     // Check cache first (skip if format is UNKNOWN or invalid)
     final cached = await getCachedParsing(filePath);
     if (cached != null && cached.format != 'UNKNOWN') {

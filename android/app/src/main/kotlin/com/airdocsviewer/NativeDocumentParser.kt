@@ -100,8 +100,11 @@ class NativeDocumentParser(private val TAG: String) {
     private val windowCellChars = 2_048
     /** A BIFF body above this is skipped. Normal cell records are a few kilobytes. */
     private val maxWindowRecordBytes = 1_048_576
+    /** Small .doc files still use HWPF. Larger files stream a paragraph window. */
     private val maxDocBytes = 8L * 1024 * 1024
+    /** Small .docx files still use XWPF when document.xml is under this. */
     private val maxDocxXmlBytes = 12L * 1024 * 1024
+    private val maxDocxVisualBytes = 64L * 1024 * 1024
     private val maxCsvBytes = 8L * 1024 * 1024
     /**
      * One slide's drawing XML. The parser stops instead of building a DOM,
@@ -418,6 +421,56 @@ class NativeDocumentParser(private val TAG: String) {
             Log.e(TAG, "readSheetWindow failed", t)
             replyError("PARSE_ERROR", failureMessage(t))
         }
+    }
+
+    /**
+     * One window of Word paragraphs. Does not build XWPFDocument or HWPFDocument.
+     * A failed window is a normal result so the next window can still be opened.
+     */
+    fun handleReadWordWindow(
+        filePath: String?,
+        format: String?,
+        start: Int?,
+        result: MethodChannel.Result,
+        activity: Activity,
+    ) {
+        var replied = false
+        fun replySuccess(data: Any?) {
+            if (replied) return
+            replied = true
+            deliverResult(result) { result.success(data) }
+        }
+        val safeStart = (start ?: 0).coerceAtLeast(0)
+        try {
+            if (activity.isDestroyed || filePath.isNullOrBlank() || format.isNullOrBlank()) {
+                replySuccess(wordWindowFailure(safeStart))
+                return
+            }
+            val source = File(filePath)
+            if (!source.isFile) {
+                replySuccess(wordWindowFailure(safeStart))
+                return
+            }
+            val started = System.currentTimeMillis()
+            val data = WordWindowReader(TAG).read(source, format, safeStart)
+            logStep(
+                "readWordWindow ${format.uppercase()} start=$safeStart " +
+                    "${System.currentTimeMillis() - started}ms",
+            )
+            replySuccess(data)
+        } catch (t: Throwable) {
+            Log.e(TAG, "readWordWindow failed", t)
+            replySuccess(wordWindowFailure(safeStart))
+        }
+    }
+
+    private fun wordWindowFailure(start: Int): Map<String, Any> {
+        return mapOf(
+            "start" to start,
+            "blocks" to emptyList<Map<String, Any>>(),
+            "hasMore" to true,
+            "failed" to true,
+        )
     }
 
     private fun parseXLSX(filePath: String, maxRows: Int?, maxCols: Int?, maxSheets: Int?): Map<String, Any> {
@@ -1744,14 +1797,65 @@ class NativeDocumentParser(private val TAG: String) {
         )
     }
 
+    /**
+     * First paragraph window, for callers that still expect one document map.
+     * The viewer itself asks for each window and does not use this path.
+     */
+    private fun wordWindowDocument(
+        file: File,
+        filePath: String,
+        format: String,
+    ): Map<String, Any> {
+        val page = WordWindowReader(TAG).read(file, format, 0)
+        val rawBlocks = page["blocks"] as? List<*> ?: emptyList<Any>()
+        val texts = mutableListOf<String>()
+        val documentBlocks = mutableListOf<Map<String, Any>>()
+        for (item in rawBlocks) {
+            val block = item as? Map<*, *> ?: continue
+            if (block["skipped"] == true) continue
+            val text = block["text"]?.toString()?.trim().orEmpty()
+            if (text.isEmpty()) continue
+            texts.add(text)
+            documentBlocks.add(
+                mapOf(
+                    "type" to "paragraph",
+                    "inlines" to listOf(
+                        mapOf(
+                            "type" to "text",
+                            "text" to text,
+                            "style" to emptyMap<String, Any>(),
+                        ),
+                    ),
+                ),
+            )
+        }
+        if (page["failed"] == true && texts.isEmpty()) {
+            throw IllegalStateException("This file could not be opened.")
+        }
+        val plain = texts.joinToString("\n")
+        val wordCount = plain.split(Regex("\\s+")).count { it.isNotBlank() }
+        return mapOf(
+            "textContent" to plain,
+            "plainTextContent" to plain,
+            "documentBlocks" to documentBlocks,
+            "parseWarnings" to listOf(
+                "Showing the first section of this document.",
+            ),
+            "fidelityLevel" to "partial",
+            "wordCount" to wordCount,
+            "lineCount" to texts.size.coerceAtLeast(1),
+            "format" to format,
+            "filePath" to filePath,
+        )
+    }
+
     private fun parseDOCX(filePath: String): Map<String, Any> {
         logStep("parseDOCX:start")
         val file = File(filePath)
         val xmlSize = zipEntrySize(file, "word/document.xml")
-        if (xmlSize > maxDocxXmlBytes) {
-            throw IllegalStateException(
-                "This document is too large to open safely on this device.",
-            )
+        if (xmlSize > maxDocxXmlBytes || file.length() > maxDocxVisualBytes) {
+            logStep("parseDOCX:stream window xml=$xmlSize file=${file.length()}")
+            return wordWindowDocument(file, filePath, "DOCX")
         }
         logStep("parseDOCX:before XWPFDocument")
         val document = XWPFDocument(OPCPackage.open(file))
@@ -1811,7 +1915,10 @@ class NativeDocumentParser(private val TAG: String) {
     private fun parseDOC(filePath: String): Map<String, Any> {
         logStep("parseDOC:start")
         val file = File(filePath)
-        ensureFileSize(file, maxDocBytes, "This .doc document")
+        if (file.length() > maxDocBytes) {
+            logStep("parseDOC:stream window, skip HWPFDocument")
+            return wordWindowDocument(file, filePath, "DOC")
+        }
         logStep("parseDOC:before HWPFDocument")
         val document = HWPFDocument(POIFSFileSystem(file, true))
         logStep("parseDOC:after HWPFDocument")

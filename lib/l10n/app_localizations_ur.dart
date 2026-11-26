@@ -207,7 +207,7 @@ class AppLocalizationsUr extends AppLocalizations {
   String get privacyDescription => 'Air Docs Viewer ایک دستاویز ویور ہے۔ آپ کی فائلیں آپ کی ڈیوائس پر مقامی طور پر محفوظ ہیں اور کسی سرور کو ہرگز منتقل نہیں کی جاتی۔';
 
   @override
-  String get aboutDescription => 'Air Docs Viewer v1.0.0 - آپ کا نجی دستاویز ویور۔ آپ کی رازداری کو احترام دینے کے لیے بنایا گیا۔';
+  String get aboutDescription => 'Air Docs Viewer v1.0.3 - آپ کا نجی دستاویز ویور۔ آپ کی رازداری کو احترام دینے کے لیے بنایا گیا۔';
 
   @override
   String get tableRows => 'قطاریں';
@@ -1718,6 +1718,30 @@ class AppLocalizationsUr extends AppLocalizations {
 
   @override
   String get viewerNoSlides => 'اس پریزنٹیشن میں کوئی سلائیڈ نہیں۔';
+
+  @override
+  String get viewerOpeningDocument => 'دستاویز کھولی جا رہی ہے...';
+
+  @override
+  String get viewerWordTextOnly =>
+      'صرف متن۔ اس ورڈ فائل کی تصاویر نہیں دکھائی جاتیں۔';
+
+  @override
+  String viewerWordWindowRange(int start, int end) {
+    return 'پیراگراف $start–$end';
+  }
+
+  @override
+  String get viewerWordPrevious => 'پچھلا حصہ';
+
+  @override
+  String get viewerWordNext => 'اگلا حصہ';
+
+  @override
+  String get viewerWordSectionSkipped => 'ایک بہت بڑا حصہ چھوڑ دیا گیا۔';
+
+  @override
+  String get viewerWordNoText => 'اس دستاویز میں کوئی متن نہیں۔';
 
   @override
   String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd) {

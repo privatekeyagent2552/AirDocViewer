@@ -59,7 +59,11 @@ class DocumentViewerFactory {
       return _buildImageViewer(filePath, onTap);
     }
     if (kind == ViewerKind.text || format == 'TXT') {
-      return _buildTextViewer(document, onTap: onTap);
+      return _buildTextViewer(
+        document,
+        onTap: onTap,
+        sourcePath: format == 'TXT' ? filePath : null,
+      );
     }
     return _buildUnsupportedViewer(document.format);
   }
@@ -203,6 +207,7 @@ class DocumentViewerFactory {
   static Widget _buildTextViewer(
     ParsedDocumentEntity document, {
     VoidCallback? onTap,
+    String? sourcePath,
   }) {
     final textContent = document.searchableText;
 
@@ -210,6 +215,7 @@ class DocumentViewerFactory {
       onTap: onTap,
       child: TextDocumentViewer(
         textContent: textContent,
+        sourcePath: sourcePath,
         onTap: onTap,
       ),
     );

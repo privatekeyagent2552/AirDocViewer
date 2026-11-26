@@ -16,8 +16,8 @@ import java.io.FileInputStream
 import java.util.Properties
 
 // ── Versioning (manual control) ──
-val appVersionCode = 6
-val appVersionName = "1.0.0"
+val appVersionCode = 9
+val appVersionName = "1.0.3"
 
 // ── Release keystore signing ──
 val keystorePropertiesFile = rootProject.file("key.properties")

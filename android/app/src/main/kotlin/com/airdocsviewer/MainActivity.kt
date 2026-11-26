@@ -204,6 +204,41 @@ class MainActivity : FlutterActivity() {
                                     )
                                 }
                             }
+                            "readWordWindow" -> {
+                                val filePath = call.argument<String>("filePath")
+                                if (filePath == null ||
+                                    !SecurityUtils.isSafeReadablePath(filePath, packageName)
+                                ) {
+                                    runOnUiThread {
+                                        result.error(
+                                            "SECURITY_ERROR",
+                                            "Unsupported or unsafe file path",
+                                            null,
+                                        )
+                                    }
+                                    return@execute
+                                }
+                                val parserClass = Class.forName("com.airdocsviewer.NativeDocumentParser")
+                                val parserInstance = parserClass
+                                    .getConstructor(String::class.java)
+                                    .newInstance(TAG)
+                                val method = parserClass.getDeclaredMethod(
+                                    "handleReadWordWindow",
+                                    String::class.java,
+                                    String::class.java,
+                                    Int::class.javaObjectType,
+                                    MethodChannel.Result::class.java,
+                                    android.app.Activity::class.java,
+                                )
+                                method.invoke(
+                                    parserInstance,
+                                    filePath,
+                                    call.argument<String>("format"),
+                                    call.argument<Int>("start") ?: 0,
+                                    result,
+                                    this@MainActivity,
+                                )
+                            }
                             "readSheetWindow" -> {
                                 val filePath = call.argument<String>("filePath")
                                 if (filePath == null ||

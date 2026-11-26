@@ -45,7 +45,7 @@ void main() {
       expect(SupportedFormats.of('doc')!.openStrategy, OpenStrategy.parserFirst);
       expect(SupportedFormats.of('doc')!.viewerKind, ViewerKind.structured);
       expect(SupportedFormats.of('xlsx')!.openStrategy, OpenStrategy.parserFirst);
-      expect(SupportedFormats.of('csv')!.openStrategy, OpenStrategy.parserFirst);
+      expect(SupportedFormats.of('csv')!.openStrategy, OpenStrategy.direct);
       expect(SupportedFormats.of('txt')!.viewerKind, ViewerKind.text);
     });
 

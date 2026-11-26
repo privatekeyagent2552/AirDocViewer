@@ -67,7 +67,7 @@
   "startBrowsing": "参照を開始",
   "languageChanged": "言語を日本語に変更しました",
   "privacyDescription": "Air Docs Viewer はドキュメントビューアーです。ファイルは端末内に保存され、サーバーへ送信されることはありません。",
-  "aboutDescription": "Air Docs Viewer v1.0.0 - あなたのプライベートドキュメントビューアー。プライバシーを尊重して構築されました。",
+  "aboutDescription": "Air Docs Viewer v1.0.1 - あなたのプライベートドキュメントビューアー。プライバシーを尊重して構築されました。",
   "tableRows": "行",
   "tableEmpty": "表示するデータがありません",
   "tableNoContent": "シートは空です",

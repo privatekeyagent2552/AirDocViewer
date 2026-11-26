@@ -20,7 +20,10 @@ import 'package:video_player/video_player.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/document_viewer_factory.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/image_viewer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/excel_sheet_pager.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/csv_sheet_pager.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/ppt_text_slide_pager.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/widgets/word_block_pager.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/word_paging.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/presentation_slides_viewer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/professional_sheet_viewer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/viewer_zoom_toolbar.dart';
@@ -89,6 +92,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   double _officeZoom = 1.0;
   double _textZoom = 1.0;
   double _slidesZoom = 1.0;
+  double _wordZoom = 1.0;
   double _imageZoom = 1.0;
   String? _sheetCellRef;
   String _sheetCellValue = '';
@@ -103,14 +107,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   late GlobalKey<TextDocumentViewerState> _textViewerKey;
   late GlobalKey<PresentationSlidesViewerState> _slidesViewerKey;
   late GlobalKey<PptTextSlidePagerState> _pptPagerKey;
+  late GlobalKey<WordBlockPagerState> _wordPagerKey;
   late GlobalKey<RichStructuredDocumentViewerState> _structuredViewerKey;
   late GlobalKey<MediaViewerState> _mediaViewerKey;
   late GlobalKey<ProfessionalSheetViewerState> _sheetViewerKey;
   late GlobalKey<ExcelSheetPagerState> _excelPagerKey;
+  late GlobalKey<CsvSheetPagerState> _csvPagerKey;
   static const double _kDragCloseThreshold = 100.0;
 
   /// Path of a document whose rich WebView render failed; falls back to structured/text.
   String? _richFailedForPath;
+
+  /// .doc above the HWPF cap. Decided once from the file length.
+  bool _pageLargeDoc = false;
+
+  /// .docx that must use the paragraph pager. Null while `document.xml` is measured.
+  bool? _docxPaged = false;
 
   /// ZIP/OOXML (PK..) — real .pptx. Used so we never treat a .pptx as text-only.
   bool _fileIsZipOoxml(String path) {
@@ -143,6 +155,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         SupportedFormats.extensionOf(widget.fileName) ??
         '';
     return ext == 'xls' || ext == 'xlsx';
+  }
+
+  bool _pagedCsv() {
+    final ext = SupportedFormats.extensionOf(widget.filePath) ??
+        SupportedFormats.extensionOf(widget.fileName) ??
+        '';
+    return ext == 'csv';
   }
 
   /// Must match the actual floating top bar content height (52).
@@ -372,6 +391,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   List<Map<String, dynamic>> _sheetSearchResults = [];
 
   String _sheetResultLabel(int row, int col) {
+    if (_pagedCsv()) {
+      final pager = _csvPagerKey.currentState;
+      final absRow = row + (pager?.rowOrigin ?? 0);
+      final absCol = col + (pager?.colOrigin ?? 0);
+      return '${spreadsheetColumnLabel(absCol)}${absRow + 1}';
+    }
     if (!_pagedExcel()) return '${_colLabel(col)}${row + 1}';
     final pager = _excelPagerKey.currentState;
     final absRow = row + (pager?.rowOrigin ?? 0);
@@ -382,6 +407,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void _performSheetSearch(String query) {
     if (query.isEmpty) {
       setState(() => _sheetSearchResults.clear());
+      return;
+    }
+    if (_pagedCsv()) {
+      final found = _csvPagerKey.currentState?.search(query) ?? const [];
+      if (!mounted) return;
+      setState(() => _sheetSearchResults = found);
       return;
     }
     if (_pagedExcel()) {
@@ -649,10 +680,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _textViewerKey = GlobalKey<TextDocumentViewerState>();
     _slidesViewerKey = GlobalKey<PresentationSlidesViewerState>();
     _pptPagerKey = GlobalKey<PptTextSlidePagerState>();
+    _wordPagerKey = GlobalKey<WordBlockPagerState>();
+    _pageLargeDoc = _docFileNeedsPaging();
+    _docxPaged = _initialDocxPaging();
+    if (_docxPaged == null) {
+      unawaited(_resolveDocxPaging());
+    }
     _structuredViewerKey = GlobalKey<RichStructuredDocumentViewerState>();
     _mediaViewerKey = GlobalKey<MediaViewerState>();
     _sheetViewerKey = GlobalKey<ProfessionalSheetViewerState>();
     _excelPagerKey = GlobalKey<ExcelSheetPagerState>();
+    _csvPagerKey = GlobalKey<CsvSheetPagerState>();
     _menuController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -795,6 +833,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       '';
                   final fromDoc =
                       docState.document?.format.toUpperCase() ?? '';
+                  if (pathExt == 'doc' && _pageLargeDoc) {
+                    return Padding(
+                      padding: _contentOverlayPadding(context),
+                      child: _buildWordPager('DOC'),
+                    );
+                  }
+                  if (pathExt == 'docx' && _docxPaged == null) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (pathExt == 'docx' && _docxPaged == true) {
+                    return Padding(
+                      padding: _contentOverlayPadding(context),
+                      child: _buildWordPager('DOCX'),
+                    );
+                  }
                   final isPptFamily = pathExt == 'ppt' ||
                       pathExt == 'pptx' ||
                       fromDoc == 'PPT' ||
@@ -1125,6 +1178,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 return;
               }
               if (!mounted) return;
+              if (message.contains('paged-word') || _docxFileOverVisualLimit()) {
+                setState(() => _docxPaged = true);
+                return;
+              }
               setState(() => _richFailedForPath = widget.filePath);
               unawaited(
                 ref
@@ -1154,6 +1211,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   Widget _buildTextViewerWithZoom({
     required String textContent,
     required String format,
+    String? sourcePath,
   }) {
     return Stack(
       children: [
@@ -1161,6 +1219,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           child: TextDocumentViewer(
             key: _textViewerKey,
             textContent: textContent,
+            sourcePath: sourcePath,
             onTap: _toggleControls,
             onSearchHighlight: _onSearchHighlight,
             zoom: _textZoom,
@@ -1187,6 +1246,44 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Widget _buildSpreadsheetWithZoom({required ParsedDocumentEntity document}) {
+    if (_pagedCsv()) {
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: CsvSheetPager(
+              key: _csvPagerKey,
+              filePath: widget.filePath,
+              sheetViewerKey: _sheetViewerKey,
+              initialZoom: _sheetZoom,
+              onZoomChanged: (zoom) {
+                if (!mounted) return;
+                if ((zoom - _sheetZoom).abs() < 0.005) return;
+                setState(() => _sheetZoom = zoom);
+              },
+              onSelectionChanged: (cellRef, value) {
+                if (!mounted) return;
+                setState(() {
+                  _sheetCellRef = cellRef;
+                  _sheetCellValue = value;
+                });
+              },
+              onWindowSettled: () {
+                if (!mounted || _sheetSearchResults.isEmpty) return;
+                setState(() => _sheetSearchResults.clear());
+              },
+            ),
+          ),
+          _buildFloatingZoomToolbar(
+            zoom: _sheetZoom,
+            minZoom: ProfessionalSheetViewer.minZoom,
+            maxZoom: ProfessionalSheetViewer.maxZoom,
+            onZoomOut: () => _sheetViewerKey.currentState?.zoomOut(),
+            onZoomIn: () => _sheetViewerKey.currentState?.zoomIn(),
+            onFit: () => _sheetViewerKey.currentState?.fitToWidth(),
+          ),
+        ],
+      );
+    }
     if (_pagedExcel()) {
       final ext = SupportedFormats.extensionOf(widget.filePath) ??
           SupportedFormats.extensionOf(widget.fileName) ??
@@ -1276,6 +1373,35 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     return null;
   }
 
+  Widget _buildWordPager(String format) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: WordBlockPager(
+            key: _wordPagerKey,
+            filePath: widget.filePath,
+            format: format,
+            onTap: _toggleControls,
+            zoom: _wordZoom,
+            onZoomChanged: (zoom) {
+              if (!mounted) return;
+              if ((zoom - _wordZoom).abs() < 0.005) return;
+              setState(() => _wordZoom = zoom);
+            },
+          ),
+        ),
+        _buildFloatingZoomToolbar(
+          zoom: _wordZoom,
+          minZoom: WordBlockPager.minZoom,
+          maxZoom: WordBlockPager.maxZoom,
+          onZoomOut: () => _wordPagerKey.currentState?.zoomOut(),
+          onZoomIn: () => _wordPagerKey.currentState?.zoomIn(),
+          onFit: () => _wordPagerKey.currentState?.fitToWidth(),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPptTextPager() {
     return Stack(
       children: [
@@ -1350,7 +1476,55 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     );
   }
 
+  String _pathExt() {
+    return SupportedFormats.extensionOf(widget.filePath) ??
+        SupportedFormats.extensionOf(widget.fileName) ??
+        '';
+  }
+
+  int _fileLength() {
+    try {
+      return File(widget.filePath).lengthSync();
+    } catch (e, st) {
+      _log.w('Word size check failed: $e', error: e, stackTrace: st);
+      return 0;
+    }
+  }
+
+  bool _docFileNeedsPaging() {
+    if (_pathExt() != 'doc') return false;
+    return _fileLength() > WordPaging.docFullParseMaxBytes;
+  }
+
+  /// Null means the file is small enough for the WebView, but document.xml
+  /// still has to be measured.
+  bool? _initialDocxPaging() {
+    if (_pathExt() != 'docx') return false;
+    if (_fileLength() > WordPaging.visualMaxBytes) return true;
+    return null;
+  }
+
+  bool _docxFileOverVisualLimit() {
+    if (_pathExt() != 'docx') return false;
+    return _fileLength() > WordPaging.visualMaxBytes;
+  }
+
+  Future<void> _resolveDocxPaging() async {
+    final xml = await docxDocumentXmlBytes(widget.filePath);
+    _log.i('DOCX document.xml bytes=$xml');
+    if (!mounted) return;
+    setState(() => _docxPaged = xml > WordPaging.docxXmlMaxBytes);
+  }
+
   Widget _buildContentViewer({required ParsedDocumentEntity document}) {
+    if (_pageLargeDoc &&
+        (document.format.toUpperCase() == 'DOC' || _pathExt() == 'doc')) {
+      return _buildWordPager('DOC');
+    }
+    if (_docxPaged == true &&
+        (document.format.toUpperCase() == 'DOCX' || _pathExt() == 'docx')) {
+      return _buildWordPager('DOCX');
+    }
     final failedOpen = ViewerOpenFailure.codeForDocument(document);
     if (failedOpen != null) {
       return _inlineOpenFailure(context, failedOpen);
@@ -1471,10 +1645,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         kind == ViewerKind.text ||
         kind == ViewerKind.richWeb) {
       final text = document.searchableText;
+      final pagingTxt = format.toUpperCase() == 'TXT' || formatExt == 'txt';
       return _buildTextViewerWithZoom(
-        textContent:
-            text.isEmpty ? 'No readable content found in this file.' : text,
+        textContent: text.isEmpty && !pagingTxt
+            ? 'No readable content found in this file.'
+            : text,
         format: format,
+        sourcePath: pagingTxt ? widget.filePath : null,
       );
     }
 

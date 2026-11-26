@@ -8,6 +8,8 @@ import 'package:air_docs_viewer/core/services/file_security_validator.dart';
 import 'package:air_docs_viewer/features/viewer/domain/entities/parsed_document_entity.dart';
 import 'package:air_docs_viewer/features/viewer/domain/supported_formats.dart';
 import 'package:air_docs_viewer/features/viewer/domain/viewer_open_failure.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/txt_window_reader.dart';
+import 'package:air_docs_viewer/features/viewer/presentation/word_paging.dart';
 import 'package:air_docs_viewer/features/viewer/data/providers/repository_providers.dart';
 
 final log = Logger();
@@ -232,6 +234,19 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
           return;
 
         case OpenStrategy.parserFirst:
+          if (spec.extension == 'doc' &&
+              await file.length() > WordPaging.docFullParseMaxBytes) {
+            log.i('DOC paged open above the HWPF cap: $_fileName');
+            document = _directStub(spec);
+            if (!_canApply(gen)) return;
+            state = ParsedDocumentState(
+              document: document,
+              isLoading: false,
+              phase: ViewerPhase.ready,
+            );
+            unawaited(_cacheInBackground());
+            return;
+          }
           document = await _parseBySpec(spec);
           if (!_canApply(gen)) return;
           final failure = ViewerOpenFailure.codeForDocument(document);
@@ -293,7 +308,17 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
 
     switch (spec.viewerKind) {
       case ViewerKind.spreadsheet:
-        if (ext == 'csv') return repository.parseCSV(_filePath);
+        if (ext == 'csv') {
+          log.i('CSV opens by window: $_fileName');
+          return ParsedDocumentEntity(
+            format: 'CSV',
+            sheets: const [],
+            sheetCount: 0,
+            parsedAt: DateTime.now(),
+            sourceFilePath: _filePath,
+            fidelityLevel: DocumentFidelityLevel.plainText,
+          );
+        }
         if (ext == 'ods') return repository.parseODS(_filePath);
         return repository.parseXLSX(_filePath, useNativeParsing: true);
 
@@ -318,6 +343,18 @@ class DocumentViewerNotifier extends Notifier<ParsedDocumentState> {
           return ext == 'atom' ? doc.copyWith(format: 'ATOM') : doc;
         }
         if (ext == 'fadrec') return repository.parseFadrec(_filePath);
+        if (ext == 'txt' &&
+            await File(_filePath).length() > TxtWindowReader.windowBytes) {
+          log.i('TXT opens by window: $_fileName');
+          return ParsedDocumentEntity(
+            format: 'TXT',
+            sheets: const [],
+            sheetCount: 0,
+            parsedAt: DateTime.now(),
+            sourceFilePath: _filePath,
+            fidelityLevel: DocumentFidelityLevel.plainText,
+          );
+        }
         final doc = await repository.parseTXT(_filePath);
         return ext == 'txt' ? doc : doc.copyWith(format: spec.formatLabel);
 

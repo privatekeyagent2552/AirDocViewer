@@ -67,7 +67,7 @@
   "startBrowsing": "Commencer à parcourir",
   "languageChanged": "Langue changée en français",
   "privacyDescription": "Air Docs Viewer est une visionneuse de documents. Vos fichiers sont stockés localement sur votre appareil et ne sont jamais transmis à un serveur.",
-  "aboutDescription": "Air Docs Viewer v1.0.0 - Votre visionneuse de documents privée. Construite en respectant votre vie privée.",
+  "aboutDescription": "Air Docs Viewer v1.0.1 - Votre visionneuse de documents privée. Construite en respectant votre vie privée.",
   "tableRows": "Lignes",
   "tableEmpty": "Aucune donnée à afficher",
   "tableNoContent": "La feuille est vide",

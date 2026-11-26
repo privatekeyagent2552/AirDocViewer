@@ -512,7 +512,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutDescription.
   ///
   /// In en, this message translates to:
-  /// **'Air Docs Viewer v1.0.0 - Your private document viewer. Built to respect your privacy.'**
+  /// **'Air Docs Viewer v1.0.3 - Your private document viewer. Built to respect your privacy.'**
   String get aboutDescription;
 
   /// No description provided for @tableRows.
@@ -3178,6 +3178,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This presentation has no slides.'**
   String get viewerNoSlides;
+
+  /// No description provided for @viewerOpeningDocument.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening document...'**
+  String get viewerOpeningDocument;
+
+  /// No description provided for @viewerWordTextOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Text only. Pictures in this Word file are not shown.'**
+  String get viewerWordTextOnly;
+
+  /// No description provided for @viewerWordWindowRange.
+  ///
+  /// In en, this message translates to:
+  /// **'Paragraphs {start}–{end}'**
+  String viewerWordWindowRange(int start, int end);
+
+  /// No description provided for @viewerWordPrevious.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous section'**
+  String get viewerWordPrevious;
+
+  /// No description provided for @viewerWordNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next section'**
+  String get viewerWordNext;
+
+  /// No description provided for @viewerWordSectionSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'A very large section was skipped.'**
+  String get viewerWordSectionSkipped;
+
+  /// No description provided for @viewerWordNoText.
+  ///
+  /// In en, this message translates to:
+  /// **'This document has no text.'**
+  String get viewerWordNoText;
 
   /// No description provided for @viewerSheetWindowRange.
   ///

@@ -217,10 +217,11 @@ class OfficeVisualViewerState extends State<OfficeVisualViewer> {
         throw Exception('File is empty: ${widget.filePath}');
       }
       if (length > _maxOfficeBytes) {
-        final mb = (length / (1024 * 1024)).ceil();
-        throw Exception(
-          'This file is too large to preview safely on this device ($mb MB, limit 64 MB).',
+        _log.w(
+          'DOCX is $length bytes; visual preview stops at $_maxOfficeBytes',
         );
+        _fail('paged-word');
+        return;
       }
       _chunkCount = (length + _chunkBytes - 1) ~/ _chunkBytes;
 

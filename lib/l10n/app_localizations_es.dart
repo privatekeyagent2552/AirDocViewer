@@ -207,7 +207,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get privacyDescription => 'Air Docs Viewer es un visor de documentos. Tus archivos se almacenan localmente en tu dispositivo y nunca se transmiten a ningún servidor.';
 
   @override
-  String get aboutDescription => 'Air Docs Viewer v1.0.0 - Tu visor de documentos privado. Construido respetando tu privacidad.';
+  String get aboutDescription => 'Air Docs Viewer v1.0.1 - Tu visor de documentos privado. Construido respetando tu privacidad.';
 
   @override
   String get tableRows => 'Filas';
@@ -1718,6 +1718,30 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get viewerNoSlides => 'This presentation has no slides.';
+
+  @override
+  String get viewerOpeningDocument => 'Opening document...';
+
+  @override
+  String get viewerWordTextOnly =>
+      'Text only. Pictures in this Word file are not shown.';
+
+  @override
+  String viewerWordWindowRange(int start, int end) {
+    return 'Paragraphs $start–$end';
+  }
+
+  @override
+  String get viewerWordPrevious => 'Previous section';
+
+  @override
+  String get viewerWordNext => 'Next section';
+
+  @override
+  String get viewerWordSectionSkipped => 'A very large section was skipped.';
+
+  @override
+  String get viewerWordNoText => 'This document has no text.';
 
   @override
   String viewerSheetWindowRange(int rowStart, int rowEnd, String colStart, String colEnd) {

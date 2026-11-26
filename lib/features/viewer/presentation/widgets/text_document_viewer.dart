@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ import 'package:highlight/languages/json.dart' as hl_json_lang;
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/text_document_search_drawer.dart';
 import 'package:air_docs_viewer/features/viewer/presentation/widgets/pinch_zoom_listener.dart';
 import 'package:air_docs_viewer/features/viewer/data/services/office_glyph_sanitizer.dart';
+import 'package:air_docs_viewer/features/viewer/data/services/txt_window_reader.dart';
+import 'package:air_docs_viewer/l10n/app_localizations.dart';
 
 final log = Logger();
 
@@ -21,6 +24,10 @@ final log = Logger();
 /// Supports tap-to-hide controls, zoom, search, and virtualization
 class TextDocumentViewer extends StatefulWidget {
   final String? textContent;
+
+  /// When set for a `.txt` larger than [TxtWindowReader.windowBytes], the
+  /// viewer pages the file from disk instead of using [textContent].
+  final String? sourcePath;
   final VoidCallback? onTap;
   final VoidCallback? onSearchHighlight;
   final double zoom;
@@ -36,6 +43,7 @@ class TextDocumentViewer extends StatefulWidget {
 
   const TextDocumentViewer({
     required this.textContent,
+    this.sourcePath,
     this.onTap,
     this.onSearchHighlight,
     this.zoom = 1.0,
@@ -58,6 +66,15 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
 
   late String _fullContent;
   List<String> _lines = const [];
+  bool _paging = false;
+  bool _windowReady = false;
+  bool _windowError = false;
+  bool _windowLoading = false;
+  bool _ignoreScroll = false;
+  bool _scrollHooked = false;
+  int _windowGen = 0;
+  int _fileLength = 0;
+  final List<_TxtSlice> _slices = [];
   List<List<_HighlightToken>> _highlightedLines = const [];
   DateTime? _tapStartTime;
   Offset? _tapStartPosition;
@@ -86,12 +103,14 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
   void zoomOut() => _setZoom(currentZoom - TextDocumentViewer.zoomStep);
 
   void fitToWidth() {
+    _ignoreScroll = true;
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
     if (_horizontalScrollController.hasClients) {
       _horizontalScrollController.jumpTo(0);
     }
+    _ignoreScroll = false;
     _setZoom(1.0);
   }
 
@@ -109,7 +128,7 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
       vsync: this,
       duration: const Duration(milliseconds: 450),
     );
-    _initializeContent();
+    _beginContent();
   }
 
   static void _ensureLanguagesRegistered() {
@@ -232,6 +251,375 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
     }
   }
 
+  void _beginContent() {
+    final path = widget.sourcePath;
+    _paging = false;
+    _windowReady = false;
+    _windowError = false;
+    _windowLoading = false;
+    _slices.clear();
+    _fileLength = 0;
+    if (path != null && _fileExceedsWindow(path)) {
+      _paging = true;
+      _fullContent = '';
+      _lines = const [];
+      _hookScroll();
+      unawaited(_loadFirstWindow());
+      return;
+    }
+    if (_windowError) {
+      _fullContent = '';
+      _lines = const [];
+      return;
+    }
+    _initializeContent();
+  }
+
+  bool _fileExceedsWindow(String path) {
+    try {
+      return File(path).lengthSync() > TxtWindowReader.windowBytes;
+    } catch (e, st) {
+      log.e('TXT length check failed', error: e, stackTrace: st);
+      final hasText = (widget.textContent ?? '').isNotEmpty;
+      _windowError = !hasText;
+      return false;
+    }
+  }
+
+  void _hookScroll() {
+    if (_scrollHooked) return;
+    _scrollHooked = true;
+    _scrollController.addListener(_onWindowScroll);
+    _horizontalScrollController.addListener(_onWindowScroll);
+  }
+
+  Future<void> _loadFirstWindow() async {
+    final path = widget.sourcePath;
+    final gen = _windowGen;
+    if (path == null) return;
+    try {
+      final window = await TxtWindowReader.read(filePath: path, byteOffset: 0);
+      if (!mounted || gen != _windowGen) return;
+      if (window.fileLength > 0 &&
+          window.endByte <= window.startByte &&
+          window.text.isEmpty) {
+        log.e('TXT window was empty for $path');
+        setState(() => _windowError = true);
+        return;
+      }
+      setState(() {
+        _fileLength = window.fileLength;
+        _slices
+          ..clear()
+          ..add(_sliceFrom(window));
+        _publishSlices();
+        _windowReady = true;
+      });
+      _refreshWindowSearch();
+      log.d(
+        'TXT window ${window.startByte}-${window.endByte} of ${window.fileLength}',
+      );
+    } catch (e, st) {
+      log.e('TXT window read failed', error: e, stackTrace: st);
+      if (!mounted || gen != _windowGen) return;
+      setState(() => _windowError = true);
+    }
+  }
+
+  void _onWindowScroll() {
+    if (_ignoreScroll ||
+        !_paging ||
+        !_windowReady ||
+        _windowLoading ||
+        _windowError ||
+        _slices.isEmpty) {
+      return;
+    }
+    if (!_scrollController.hasClients) return;
+    const edge = 640.0;
+    final vertical = _scrollController.position;
+    if (!vertical.hasContentDimensions) return;
+    var nearEnd = false;
+    var nearStart = false;
+    if (vertical.maxScrollExtent > 48) {
+      nearEnd = vertical.pixels >= vertical.maxScrollExtent - edge;
+      nearStart = vertical.pixels <= edge;
+    } else if (_horizontalScrollController.hasClients) {
+      final horizontal = _horizontalScrollController.position;
+      if (horizontal.hasContentDimensions && horizontal.maxScrollExtent > 48) {
+        nearEnd = horizontal.pixels >= horizontal.maxScrollExtent - edge;
+        nearStart = horizontal.pixels <= edge;
+      }
+    }
+    final moreAfter = _slices.last.endByte < _fileLength;
+    final moreBefore = _slices.first.startByte > 0;
+    if (nearEnd && moreAfter) {
+      unawaited(_appendWindow());
+    } else if (nearStart && moreBefore) {
+      unawaited(_prependWindow());
+    }
+  }
+
+  Future<void> _appendWindow() async {
+    final path = widget.sourcePath;
+    if (path == null || _windowLoading || _slices.isEmpty) return;
+    if (_slices.last.endByte >= _fileLength) return;
+    final gen = _windowGen;
+    _windowLoading = true;
+    var holdLoading = false;
+    try {
+      final next = await TxtWindowReader.read(
+        filePath: path,
+        byteOffset: _slices.last.endByte,
+      );
+      if (!mounted || gen != _windowGen) return;
+      if (next.endByte <= _slices.last.endByte) {
+        log.w('TXT window made no progress at ${_slices.last.endByte}');
+        return;
+      }
+      final anchor = _captureAnchor(_slices.length - 1);
+      final keptLine = anchor?.lineInSlice ?? 0;
+      var droppedLines = 0;
+      setState(() {
+        _slices.add(_sliceFrom(next));
+        if (_slices.length > 2) {
+          droppedLines = _slices.first.lines.length;
+          _slices.removeAt(0);
+        }
+        _fileLength = next.fileLength;
+        _publishSlices();
+      });
+      _refreshWindowSearch();
+      holdLoading = true;
+      _scheduleScrollFix(
+        gen: gen,
+        deltaLines: -droppedLines,
+        anchor: droppedLines > 0 ? anchor : null,
+        newIndex: keptLine,
+      );
+      log.d('TXT window ${next.startByte}-${next.endByte} of ${next.fileLength}');
+      return;
+    } catch (e, st) {
+      log.e('TXT window read failed', error: e, stackTrace: st);
+      if (!mounted || gen != _windowGen) return;
+      setState(() => _windowError = true);
+    } finally {
+      if (!holdLoading && gen == _windowGen) {
+        _windowLoading = false;
+      }
+    }
+  }
+
+  Future<void> _prependWindow() async {
+    final path = widget.sourcePath;
+    if (path == null || _windowLoading || _slices.isEmpty) return;
+    if (_slices.first.startByte <= 0) return;
+    final gen = _windowGen;
+    _windowLoading = true;
+    var holdLoading = false;
+    try {
+      final prev = await TxtWindowReader.readBefore(
+        filePath: path,
+        endByte: _slices.first.startByte,
+      );
+      if (!mounted || gen != _windowGen) return;
+      if (prev.startByte >= _slices.first.startByte) {
+        log.w('TXT previous window made no progress at ${_slices.first.startByte}');
+        return;
+      }
+      final anchor = _captureAnchor(0);
+      final keptLine = anchor?.lineInSlice ?? 0;
+      final added = _sliceFrom(prev);
+      setState(() {
+        _slices.insert(0, added);
+        if (_slices.length > 2) {
+          _slices.removeLast();
+        }
+        _fileLength = prev.fileLength;
+        _publishSlices();
+      });
+      _refreshWindowSearch();
+      holdLoading = true;
+      _scheduleScrollFix(
+        gen: gen,
+        deltaLines: added.lines.length,
+        anchor: anchor,
+        newIndex: added.lines.length + keptLine,
+      );
+      log.d('TXT window ${prev.startByte}-${prev.endByte} of ${prev.fileLength}');
+    } catch (e, st) {
+      log.e('TXT window read failed', error: e, stackTrace: st);
+      if (!mounted || gen != _windowGen) return;
+      setState(() => _windowError = true);
+    } finally {
+      if (!holdLoading && gen == _windowGen) {
+        _windowLoading = false;
+      }
+    }
+  }
+
+  void _scheduleScrollFix({
+    required int gen,
+    required int deltaLines,
+    required _SliceAnchor? anchor,
+    required int newIndex,
+  }) {
+    final deltaPx = deltaLines * _lineExtent;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || gen != _windowGen || !_scrollController.hasClients) {
+        if (gen == _windowGen) _windowLoading = false;
+        return;
+      }
+      if (deltaPx != 0) {
+        final position = _scrollController.position;
+        final target = (_scrollController.offset + deltaPx)
+            .clamp(0.0, position.maxScrollExtent)
+            .toDouble();
+        _ignoreScroll = true;
+        _scrollController.jumpTo(target);
+        _ignoreScroll = false;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || gen != _windowGen || !_scrollController.hasClients) {
+          if (gen == _windowGen) _windowLoading = false;
+          return;
+        }
+        _correctAnchor(anchor, newIndex);
+        _windowLoading = false;
+      });
+    });
+  }
+
+  _SliceAnchor? _captureAnchor(int sliceIndex) {
+    if (sliceIndex < 0 || sliceIndex >= _slices.length) return null;
+    final base = _sliceLineStart(sliceIndex);
+    final count = _slices[sliceIndex].lines.length;
+    for (var i = base; i < base + count; i++) {
+      final box = _lineTextKeys[i]?.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize || !box.attached) continue;
+      try {
+        return _SliceAnchor(i - base, box.localToGlobal(Offset.zero).dy);
+      } catch (e, st) {
+        log.w('TXT anchor skipped', error: e, stackTrace: st);
+      }
+    }
+    return null;
+  }
+
+  void _correctAnchor(_SliceAnchor? anchor, int newIndex) {
+    if (anchor == null || !_scrollController.hasClients) return;
+    final box = _lineTextKeys[newIndex]?.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !box.attached) return;
+    try {
+      final dy = box.localToGlobal(Offset.zero).dy;
+      final delta = dy - anchor.globalDy;
+      if (delta.abs() < 1) return;
+      final position = _scrollController.position;
+      final target = (_scrollController.offset + delta)
+          .clamp(0.0, position.maxScrollExtent)
+          .toDouble();
+      if ((target - _scrollController.offset).abs() < 1) return;
+      _ignoreScroll = true;
+      _scrollController.jumpTo(target);
+      _ignoreScroll = false;
+    } catch (e, st) {
+      log.w('TXT anchor correction skipped', error: e, stackTrace: st);
+    }
+  }
+
+  int _sliceLineStart(int sliceIndex) {
+    var count = 0;
+    for (var i = 0; i < sliceIndex; i++) {
+      count += _slices[i].lines.length;
+    }
+    return count;
+  }
+
+  _TxtSlice _sliceFrom(TxtWindow window) {
+    final text = OfficeGlyphSanitizer.sanitize(window.text);
+    final endsWithNewline = text.endsWith('\n');
+    final parts = text.isEmpty ? <String>[] : text.split('\n');
+    if (endsWithNewline && parts.isNotEmpty && parts.last.isEmpty) {
+      parts.removeLast();
+    }
+    return _TxtSlice(
+      startByte: window.startByte,
+      endByte: window.endByte,
+      lines: parts,
+      endsWithNewline: endsWithNewline,
+    );
+  }
+
+  void _publishSlices() {
+    final lines = <String>[];
+    for (final slice in _slices) {
+      lines.addAll(slice.lines);
+    }
+    if (_slices.isNotEmpty && _slices.last.endsWithNewline) {
+      lines.add('');
+    }
+    _lines = lines;
+    _fullContent = '';
+    _lineTextKeys.clear();
+    _highlightedLines = const [];
+    _highlightedResultIndex = null;
+    _searchResults = const [];
+    _activeSearchResultIndex = -1;
+    _isSearching = false;
+    _searchLinesChecked = 0;
+  }
+
+  void _refreshWindowSearch() {
+    _drawerVersion.value++;
+    final query = _searchController.text;
+    if (query.trim().isEmpty) return;
+    _performSearch(query, revealFirst: false);
+  }
+
+  String _loadedRangeLabel() {
+    if (_slices.isEmpty || _fileLength <= 0) return '';
+    final startMb = _slices.first.startByte / (1024 * 1024);
+    final endMb = _slices.last.endByte / (1024 * 1024);
+    final percent =
+        ((_slices.last.endByte / _fileLength) * 100).round().clamp(0, 100);
+    return '${startMb.toStringAsFixed(1)}-${endMb.toStringAsFixed(1)} MB · $percent%';
+  }
+
+  Widget _buildRangeChip(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Text(
+          _loadedRangeLabel(),
+          style: TextStyle(
+            fontSize: 12,
+            color: scheme.onSurfaceVariant,
+            fontFamily: 'Ubuntu',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOpenFailed(BuildContext context) {
+    final message = AppLocalizations.of(context)!.viewerFileOpenFailed;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+      ),
+    );
+  }
+
   List<List<_HighlightToken>> _tokenizeResult(List<Node>? nodes) {
     final tokens = <_HighlightToken>[];
     _flattenNodes(nodes, null, tokens);
@@ -302,6 +690,16 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
   @override
   void didUpdateWidget(TextDocumentViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.sourcePath != widget.sourcePath) {
+      _windowGen++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _beginContent();
+        setState(() {});
+      });
+      return;
+    }
+    if (_paging) return;
     if (oldWidget.textContent != widget.textContent || oldWidget.language != widget.language) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _initializeContent();
@@ -358,7 +756,7 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
     );
   }
 
-  void _performSearch(String query) {
+  void _performSearch(String query, {bool revealFirst = true}) {
     final normalizedQuery = query.trim().toLowerCase();
     final searchToken = ++_searchCancellationToken;
 
@@ -427,7 +825,7 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
       });
       _drawerVersion.value++;
 
-      if (results.isNotEmpty) {
+      if (revealFirst && results.isNotEmpty) {
         _jumpToLine(results.first.lineNumber, animate: false);
       }
     });
@@ -659,6 +1057,11 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
 
   @override
   void dispose() {
+    _windowGen++;
+    if (_scrollHooked) {
+      _scrollController.removeListener(_onWindowScroll);
+      _horizontalScrollController.removeListener(_onWindowScroll);
+    }
     _scrollController.dispose();
     _horizontalScrollController.dispose();
     _searchController.dispose();
@@ -671,7 +1074,13 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
 
   @override
   Widget build(BuildContext context) {
-    if (_fullContent.isEmpty) {
+    if (_windowError) {
+      return _buildOpenFailed(context);
+    }
+    if (_paging && !_windowReady) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_lines.isEmpty || (!_paging && _fullContent.isEmpty)) {
       return _buildEmptyView(context);
     }
 
@@ -790,6 +1199,14 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
                           );
                         },
                       ),
+                    ),
+                  ),
+                if (_paging && _windowReady && _fileLength > 0)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: IgnorePointer(
+                      child: _buildRangeChip(context),
                     ),
                   ),
                 if (_highlightedResultIndex != null)
@@ -997,6 +1414,27 @@ class TextDocumentViewerState extends State<TextDocumentViewer>
   }
 
 
+}
+
+class _TxtSlice {
+  final int startByte;
+  final int endByte;
+  final List<String> lines;
+  final bool endsWithNewline;
+
+  const _TxtSlice({
+    required this.startByte,
+    required this.endByte,
+    required this.lines,
+    required this.endsWithNewline,
+  });
+}
+
+class _SliceAnchor {
+  final int lineInSlice;
+  final double globalDy;
+
+  const _SliceAnchor(this.lineInSlice, this.globalDy);
 }
 
 class _HighlightToken {

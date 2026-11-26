@@ -130,6 +130,19 @@ class MethodChannelService implements PlatformChannelService {
     });
   }
 
+  /// One window of Word paragraphs. Does not return the rest of the document.
+  Future<Map<String, dynamic>> readWordWindow({
+    required String filePath,
+    required String format,
+    required int start,
+  }) {
+    return _invokeMap('readWordWindow', {
+      'filePath': filePath,
+      'format': format,
+      'start': start,
+    });
+  }
+
   /// One legacy .ppt slide of text. Does not return the other slides.
   Future<Map<String, dynamic>> readPptSlide({
     required String filePath,
